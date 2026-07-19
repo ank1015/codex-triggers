@@ -1,0 +1,46 @@
+{
+  "name": "@codexmaxxing/trigger",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "pnpm clean && tsc -p tsconfig.json && cp src/runtime/worker-runner.mjs dist/runtime/worker-runner.mjs && cp src/delivery/services/codex-app/worker-watchdog.mjs dist/delivery/services/codex-app/worker-watchdog.mjs",
+    "clean": "node scripts/clean.mjs",
+    "dev": "tsx watch src/standalone.ts",
+    "funnel": "node scripts/funnel.mjs start",
+    "funnel:reset": "node scripts/funnel.mjs reset",
+    "funnel:status": "node scripts/funnel.mjs status",
+    "start": "node dist/standalone.js",
+    "test": "tsx --test test/**/*.test.ts",
+    "test:codex-app-server-live": "TRIGGER_LIVE_CODEX_APP_SERVER_TEST=1 tsx --test test/codex-app-server.live.test.ts",
+    "test:codex-app-live": "TRIGGER_LIVE_CODEX_APP_TEST=1 tsx --test test/codex-app.live.test.ts",
+    "test:codex-live": "TRIGGER_LIVE_CODEX_TEST=1 tsx --test test/codex-cli.live.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.1",
+    "@openai/codex-sdk": "^0.144.6",
+    "ajv": "^8.20.0",
+    "croner": "^10.0.1",
+    "esbuild": "^0.28.1",
+    "hono": "^4.9.6",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.1",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
