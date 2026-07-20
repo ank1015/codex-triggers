@@ -89,7 +89,9 @@ data directory. Set `TRIGGER_DATA_DIR` to use a specific directory instead.
 
 The desktop host registers only `codex-app-server`. The standalone host started
 with `pnpm dev` or `pnpm start` continues to register all three current Codex
-adapters. All other Trigger environment variables and API formats are shared.
+adapters. API formats are shared. Trigger Desktop always keeps its control API
+unauthenticated on loopback and ignores `TRIGGER_ADMIN_TOKEN`; the standalone
+host retains the optional token setting.
 
 ## Expose webhooks with Tailscale
 
@@ -101,15 +103,29 @@ pnpm funnel:status
 ```
 
 This exposes only the dedicated webhook listener on `TRIGGER_PUBLIC_PORT`. The
-control API remains on its separate loopback port. Remove the Funnel
-configuration with:
+control API remains on its separate loopback port. Trigger uses the scoped
+`/codex-triggers` Funnel path so other Funnel routes on the device are left
+alone. Remove only this route with:
 
 ```sh
 pnpm funnel:reset
 ```
 
 Set `TRIGGER_PUBLIC_URL` to the Funnel HTTPS origin so creation responses return
-the externally usable webhook URL.
+the externally usable webhook URL when managing Funnel outside Trigger.
+
+Trigger Desktop can manage this route from **Settings → Tailscale tunnel for
+webhooks**. Agents can discover the current public base URL through:
+
+```text
+GET /v1/public-webhook-url
+```
+
+It returns `{ "publicWebhookUrl": string | null, "error": string | null }`.
+When no public URL is available, `publicWebhookUrl` is `null` and `error`
+explains whether the tunnel has not been started or Tailscale is unavailable.
+Tunnel state can also be read and changed through `GET` and `PUT
+/v1/settings/webhook-tunnel`; the PUT body is `{ "enabled": boolean }`.
 
 ## Create a Webhook Trigger
 
@@ -209,6 +225,45 @@ The Delivery core runs inside the same host process. It does not open another
 port. A Delivery follows exactly one Trigger and contains one or more configured
 Delivery Services. When that Trigger records a Notification, SQLite creates one
 queued Delivery Job per configured service in the same transaction.
+
+Agents should normally create a Trigger and its Delivery together:
+
+```text
+POST /v1/trigger-systems
+```
+
+The request contains the ordinary Trigger body under `trigger` and a Delivery
+body without `triggerId` under `delivery`. Trigger validates both halves first,
+wires the Delivery before enabling the Trigger, and removes the entire new
+system if creation fails. Separate `/v1/triggers` and `/v1/deliveries` routes
+remain available for management and advanced workflows.
+
+```json
+{
+  "trigger": {
+    "name": "New pull request",
+    "kind": "webhook",
+    "code": "export default async function run(request) { const body = await request.json(); return { message: `PR: ${body.title}`, data: body } }",
+    "outputSchema": { "type": "object" }
+  },
+  "delivery": {
+    "name": "Send pull requests to Codex",
+    "services": [
+      {
+        "type": "codex-app-server",
+        "config": {
+          "projectPath": "/Users/me/project",
+          "newThread": true,
+          "model": "luna",
+          "reasoningEffort": "medium",
+          "threadMode": "persistent"
+        },
+        "input": { "prompt": "{{message}}" }
+      }
+    ]
+  }
+}
+```
 
 Discover the adapters registered by the host:
 

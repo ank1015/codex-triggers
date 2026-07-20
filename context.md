@@ -64,6 +64,10 @@ Both hosts expose the control API on `127.0.0.1:47831` and the webhook gateway
 on `127.0.0.1:47832` by default, so other local processes call the same API in
 either mode. Do not run both hosts on the same configured ports at once.
 
+Trigger Desktop intentionally has no admin token and ignores
+`TRIGGER_ADMIN_TOKEN`. Its control API remains loopback-only. The standalone
+host can still use the optional token when run separately.
+
 The desktop host runs Trigger inside Electron's main process. Its window is a
 small status surface; Trigger execution does not happen in the renderer.
 Desktop data uses Electron's application data directory unless
@@ -282,6 +286,40 @@ public origin.
 
 Tailscale is not started automatically by Trigger.
 
+Trigger Desktop can instead manage a scoped Funnel route from Settings. It
+proxies `/codex-triggers` to the webhook listener and does not reset unrelated
+Funnel routes on the device.
+
+Before configuring an external provider's webhook, an agent should call:
+
+```http
+GET /v1/public-webhook-url
+```
+
+Response:
+
+```json
+{
+  "publicWebhookUrl": "https://device-name.example.ts.net/codex-triggers",
+  "error": null
+}
+```
+
+The value is `null` when neither the managed Funnel nor
+`TRIGGER_PUBLIC_URL` provides a public base URL. In that case, `error` explains
+whether the tunnel has not been started or Tailscale is stopped or unavailable.
+The managed setting endpoints are:
+
+```http
+GET /v1/settings/webhook-tunnel
+PUT /v1/settings/webhook-tunnel
+Content-Type: application/json
+
+{ "enabled": true }
+```
+
+The settings response contains `enabled`, `publicWebhookUrl`, and `error`.
+
 ## Configuration
 
 Configuration is read from environment variables when the process starts.
@@ -419,6 +457,47 @@ separately on Delivery Jobs.
 A Delivery subscribes to one Trigger. Every new Notification from that Trigger
 creates one Delivery Job for each configured service while the Delivery is
 enabled.
+
+### Create a complete Trigger system in one call
+
+Prefer this endpoint when creating a new Trigger and its Delivery together:
+
+```http
+POST /v1/trigger-systems
+Content-Type: application/json
+```
+
+Request shape:
+
+```ts
+{
+  trigger: CreateTriggerInput
+  delivery: {
+    name: string
+    enabled?: boolean
+    services: ConfiguredDeliveryServiceInput[]
+  }
+}
+```
+
+Do not include `delivery.triggerId`; Trigger fills it with the newly-created
+Trigger ID. The service configurations are validated before compiling Trigger
+code. The Trigger is initially stored disabled, its Delivery is created, and
+only then is the Trigger enabled. If any step fails, the new Trigger, Delivery,
+service worker, and compiled code are removed.
+
+The `201` response contains:
+
+```ts
+{
+  trigger: CreatedTrigger
+  delivery: DeliveryDetails
+}
+```
+
+For Webhook Triggers, `trigger.webhookToken` and `trigger.webhookUrl` are
+included and should be treated as secrets. Existing individual create routes
+remain available when a Delivery must be added to an existing Trigger.
 
 ```text
 Trigger execution
