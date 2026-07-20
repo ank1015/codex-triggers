@@ -71,8 +71,10 @@ export class CodexAppServerDeliveryService implements DeliveryService {
 
   constructor(private readonly controller: CodexAppServerController) {}
 
-  async deliver(request: DeliveryServiceRequest): Promise<void> {
-    await this.withTargetLock(request.configuredServiceId, async () => {
+  async deliver(
+    request: DeliveryServiceRequest,
+  ): Promise<{ threadId: string } | void> {
+    return await this.withTargetLock(request.configuredServiceId, async () => {
       const config = request.config as unknown as CodexAppServerConfig;
       const input = request.input as unknown as CodexAppServerInput;
       const existingThreadId =
@@ -98,6 +100,10 @@ export class CodexAppServerDeliveryService implements DeliveryService {
         this.threadIds.set(request.configuredServiceId, result.threadId);
         request.updateConfig({ ...request.config, threadId: result.threadId });
       }
+
+      return config.threadMode === "persistent"
+        ? { threadId: result.threadId }
+        : undefined;
     });
   }
 

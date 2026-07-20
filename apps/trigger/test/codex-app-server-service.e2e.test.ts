@@ -107,11 +107,20 @@ test("Codex app-server Delivery persists and reuses a durable thread", async () 
   harness.system.runManually(trigger.details.trigger.id, {} as JsonValue);
   await waitFor(() => assert.equal(controller.requests.length, 2));
   assert.equal(controller.requests[1]?.threadId, "app-server-thread-1");
-  assert.equal(
+  assert.deepEqual(
     harness.system.database.delivery
       .listJobs({ deliveryId: delivery.delivery.id })
-      .every((job) => job.status === "succeeded" && job.result === null),
-    true,
+      .map((job) => ({ status: job.status, result: job.result })),
+    [
+      {
+        status: "succeeded",
+        result: { threadId: "app-server-thread-1" },
+      },
+      {
+        status: "succeeded",
+        result: { threadId: "app-server-thread-1" },
+      },
+    ],
   );
 });
 

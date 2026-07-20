@@ -49,7 +49,7 @@ export class DeliverySystem {
     if (!this.database.getTrigger(input.triggerId)) {
       throw new ValidationError("Trigger not found");
     }
-    this.validateServices(input.services);
+    this.validateServiceConfigurations(input.services);
 
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -69,7 +69,7 @@ export class DeliverySystem {
 
   update(id: string, input: UpdateDeliveryInput): DeliveryDetails | null {
     if (!this.database.delivery.getDelivery(id)) return null;
-    if (input.services) this.validateServices(input.services);
+    if (input.services) this.validateServiceConfigurations(input.services);
     const now = new Date().toISOString();
     return this.database.delivery.updateDelivery(id, {
       ...(input.name !== undefined ? { name: input.name } : {}),
@@ -84,7 +84,9 @@ export class DeliverySystem {
     return this.database.delivery.deleteDelivery(id);
   }
 
-  private validateServices(services: ConfiguredDeliveryServiceInput[]): void {
+  validateServiceConfigurations(
+    services: ConfiguredDeliveryServiceInput[],
+  ): void {
     for (const service of services) {
       this.registry.validateConfig(service.type, service.config);
     }
