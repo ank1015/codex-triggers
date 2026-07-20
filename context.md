@@ -697,9 +697,11 @@ configured targets. Approval policy is `never`; sandbox mode is fixed to
 `danger-full-access`. If the child exits, the next Delivery starts a new one.
 Persistent threads can then be resumed from their stored IDs.
 
-The job succeeds as soon as app-server accepts `turn/start`. Trigger continues
-draining protocol events but does not wait for the turn to finish and does not
-store responses, transcripts, token usage, or completion status.
+After app-server accepts `turn/start`, the Delivery job remains `running` until
+the matching `turn/completed` notification arrives. Completed turns succeed;
+failed or interrupted turns fail with the Codex error. Trigger retains the
+thread ID for persistent jobs but does not copy responses, transcripts, or
+token usage into its own database.
 
 ### Codex App Delivery Service
 

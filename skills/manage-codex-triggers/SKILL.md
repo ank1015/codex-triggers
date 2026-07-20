@@ -96,5 +96,6 @@ Verify:
 3. a Delivery job is created for the new notification;
 4. the Delivery job reaches `succeeded` or exposes an actionable error.
 
-The app-server Delivery succeeds when Codex accepts the turn. It does not prove
-that the Codex task later completed successfully.
+The app-server Delivery remains `running` while Codex works and succeeds only
+after the matching turn completes. A failed or interrupted Codex turn fails the
+Delivery job with an actionable error.

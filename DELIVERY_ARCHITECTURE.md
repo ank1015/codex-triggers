@@ -141,9 +141,11 @@ in the desktop sidebar and disappears when app-server exits, so it requires
 
 The adapter starts app-server lazily, multiplexes all targets through one
 process, and restarts it on the next Delivery after a crash. Approval policy is
-`never` and sandbox mode is `danger-full-access`. A job succeeds after
-`turn/start` is accepted; responses, transcripts, usage, and eventual turn
-status are not stored.
+`never` and sandbox mode is `danger-full-access`. After `turn/start`, the job
+remains running until the matching `turn/completed` notification arrives. A
+completed turn succeeds the job; failed or interrupted turns fail it. The
+thread ID is retained for persistent jobs, but responses, transcripts, and
+usage are not copied into Trigger storage.
 
 ## Codex App Delivery Service
 

@@ -357,9 +357,9 @@ Create a Codex app-server Delivery:
 threads across Trigger restarts. Such tasks are eligible for the Codex desktop
 sidebar, but an already-open app may need to reload its sidebar.
 `threadMode: "ephemeral"` writes no session and never appears in the sidebar;
-it requires `newThread: true`. The job succeeds once app-server accepts the
-turn and does not wait for the response. `images` accepts local paths and HTTP
-or HTTPS image URLs.
+it requires `newThread: true`. The job remains running until Codex emits the
+matching `turn/completed` event. Completed turns succeed; failed or interrupted
+turns fail the job. `images` accepts local paths and HTTP or HTTPS image URLs.
 
 Create a Codex App Delivery:
 

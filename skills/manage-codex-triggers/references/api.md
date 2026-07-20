@@ -158,6 +158,10 @@ type TriggerInput = {
   thread and saves its ID into the Delivery configuration.
 - `persistent` writes a normal Codex session and is eligible for the sidebar.
 - `ephemeral` is not saved, requires `newThread: true`, and forbids `threadId`.
+- A Delivery job remains `running` until Codex emits the matching
+  `turn/completed` event. Completed turns succeed; failed or interrupted turns
+  fail the job. Trigger stores the persistent thread ID, not the assistant
+  response or token usage.
 
 Input:
 
