@@ -16,6 +16,10 @@ const api: DesktopApi = {
       triggerId,
       showInCodex,
     ),
+  setCodexOptions: async (triggerId, options) =>
+    await ipcRenderer.invoke("desktop:set-codex-options", triggerId, options),
+  deleteTrigger: async (triggerId) =>
+    await ipcRenderer.invoke("desktop:delete-trigger", triggerId),
   openCodexNewChat: async () =>
     await ipcRenderer.invoke("desktop:open-codex-new-chat"),
   openCodexThread: async (threadId) =>

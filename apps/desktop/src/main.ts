@@ -14,6 +14,8 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 
 import type {
   ActiveTrigger,
+  CodexModel,
+  CodexReasoningEffort,
   DesktopStatus,
   TriggerPageData,
 } from "./shared.js";
@@ -214,17 +216,20 @@ function getTriggerPageData(
         const execution = executionById.get(notification.executionId);
         const job = jobsByNotification.get(notification.id);
         const persistentJob = job?.config.threadMode === "persistent";
+        const isServiceNotification = execution?.kind === "service";
         return {
           id: notification.id,
-          status: execution?.status ?? ("succeeded" as const),
+          status: isServiceNotification
+            ? ("succeeded" as const)
+            : execution?.status ?? ("succeeded" as const),
           message: notification.output.message,
-          error: execution?.error ?? null,
+          error: isServiceNotification ? null : execution?.error ?? null,
           createdAt: notification.createdAt,
           finishedAt: job?.finishedAt ?? execution?.finishedAt ?? null,
           deliveryStatus: job?.status ?? null,
           deliveryError: job?.error ?? null,
           threadId:
-            job && persistentJob
+            job?.status === "succeeded" && persistentJob
               ? codexThreadId(job.result) ??
                 stringProperty(job.config, "threadId")
               : null,
@@ -233,6 +238,7 @@ function getTriggerPageData(
       ...executions
         .filter(
           (execution) =>
+            execution.kind !== "service" &&
             !notifications.some(
               (notification) => notification.executionId === execution.id,
             ),
@@ -299,6 +305,52 @@ function setCodexShowInCodex(
   });
   server.system.delivery.update(entry.delivery.delivery.id, { services });
   return getTriggerPageData(server, triggerId)!;
+}
+
+function setCodexOptions(
+  server: TriggerServer,
+  triggerId: string,
+  options: {
+    model?: CodexModel;
+    reasoningEffort?: CodexReasoningEffort;
+  },
+): TriggerPageData {
+  const deliveries = server.system.database.delivery
+    .listDeliveries({ triggerId })
+    .map(({ id }) => server.system.database.delivery.getDetails(id))
+    .filter((delivery) => delivery !== null);
+  const entry = deliveries
+    .flatMap((delivery) =>
+      delivery.services.map((target) => ({ delivery, target })),
+    )
+    .find(({ target }) => target.type === "codex-app-server");
+  if (!entry) throw new Error("Codex Delivery not found");
+
+  const services = entry.delivery.services.map((target) => ({
+    type: target.type,
+    config:
+      target.id === entry.target.id
+        ? { ...target.config, ...options }
+        : target.config,
+    input: target.input,
+  }));
+  server.system.delivery.update(entry.delivery.delivery.id, { services });
+  return getTriggerPageData(server, triggerId)!;
+}
+
+function isCodexModel(value: unknown): value is CodexModel {
+  return value === "luna" || value === "terra" || value === "sol";
+}
+
+function isCodexReasoningEffort(
+  value: unknown,
+): value is CodexReasoningEffort {
+  return (
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh"
+  );
 }
 
 function errorMessage(error: unknown): string {
@@ -521,9 +573,10 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
         title: document.querySelector(".trigger-detail-heading h1")?.textContent,
         enabled: document.querySelector('[aria-label="Trigger enabled"]')?.getAttribute("aria-checked"),
         eventType: document.querySelector(".trigger-type-badge")?.textContent?.trim(),
+        codeInitiallyOpen: document.querySelector(".code-disclosure")?.hasAttribute("open"),
         code: document.querySelector(".code-block code")?.textContent,
         prompt: document.querySelector(".codex-prompt code")?.textContent,
-        model: document.querySelector(".codex-options-grid dd")?.textContent,
+        model: document.querySelector('[aria-label="Codex model"]')?.value,
         showInCodex: document.querySelector('[aria-label="Show in Codex"]')?.getAttribute("aria-checked"),
         recentMessage: document.querySelector(".recent-run-copy p")?.textContent,
         recentCount: document.querySelectorAll(".recent-runs-list li").length,
@@ -535,6 +588,7 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
     title?: string;
     enabled?: string;
     eventType?: string;
+    codeInitiallyOpen?: boolean;
     code?: string;
     prompt?: string;
     model?: string;
@@ -548,6 +602,7 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
     triggerPage.title !== "Smoke Trigger" ||
     triggerPage.enabled !== "true" ||
     triggerPage.eventType !== "Webhook Trigger" ||
+    triggerPage.codeInitiallyOpen !== false ||
     !triggerPage.code?.includes("Smoke Trigger ran") ||
     triggerPage.prompt !== "Handle this Trigger: {{message}}" ||
     triggerPage.model !== "luna" ||
@@ -557,6 +612,56 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
   ) {
     throw new Error(
       `Desktop UI rendered an unexpected Trigger page: ${JSON.stringify(triggerPage)}`,
+    );
+  }
+
+  const codexOptionChanges = (await window.webContents.executeJavaScript(
+    `(async () => {
+      const waitValue = async (element, expected) => {
+        const deadline = Date.now() + 2_000;
+        while (element?.value !== expected && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        return element?.value;
+      };
+      const disclosure = document.querySelector(".code-disclosure");
+      document.querySelector(".code-disclosure summary")?.click();
+
+      const model = document.querySelector('[aria-label="Codex model"]');
+      model.value = "terra";
+      model.dispatchEvent(new Event("change", { bubbles: true }));
+      const updatedModel = await waitValue(model, "terra");
+
+      const reasoning = document.querySelector('[aria-label="Codex reasoning"]');
+      reasoning.value = "high";
+      reasoning.dispatchEvent(new Event("change", { bubbles: true }));
+      const updatedReasoning = await waitValue(reasoning, "high");
+      return {
+        codeOpened: disclosure?.hasAttribute("open"),
+        updatedModel,
+        updatedReasoning,
+      };
+    })()`,
+  )) as {
+    codeOpened?: boolean;
+    updatedModel?: string;
+    updatedReasoning?: string;
+  };
+  const updatedCodexTarget = server.system.database.delivery
+    .listDeliveries({ triggerId: smokeTrigger.details.trigger.id })
+    .flatMap(({ id }) =>
+      server.system.database.delivery.getDetails(id)?.services ?? [],
+    )
+    .find(({ type }) => type === "codex-app-server");
+  if (
+    codexOptionChanges.codeOpened !== true ||
+    codexOptionChanges.updatedModel !== "terra" ||
+    codexOptionChanges.updatedReasoning !== "high" ||
+    updatedCodexTarget?.config.model !== "terra" ||
+    updatedCodexTarget.config.reasoningEffort !== "high"
+  ) {
+    throw new Error(
+      `Desktop UI Codex options failed: ${JSON.stringify({ codexOptionChanges, config: updatedCodexTarget?.config })}`,
     );
   }
 
@@ -618,6 +723,165 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
   if (triggerPageReturnedTitle !== "Active Triggers") {
     throw new Error(
       `Desktop UI Trigger back navigation failed: ${triggerPageReturnedTitle}`,
+    );
+  }
+
+  const listenerTrigger = await server.system.createTrigger({
+    name: "Silent Listener",
+    kind: "service",
+    enabled: true,
+    code: `
+      export default {
+        async start(ctx) {
+          await ctx.untilStopped()
+        }
+      }
+    `,
+    outputSchema: true,
+    timeoutMs: 0,
+  });
+  const listenerDeadline = Date.now() + 4_000;
+  while (
+    server.system.database.getServiceState(
+      listenerTrigger.details.trigger.id,
+    )?.status !== "running" &&
+    Date.now() < listenerDeadline
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  const listenerPage = (await window.webContents.executeJavaScript(
+    `(async () => {
+      const deadline = Date.now() + 4_000;
+      let card;
+      while (!card && Date.now() < deadline) {
+        card = document.querySelector('[aria-label="Open Silent Listener"]');
+        if (!card) await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      card?.click();
+      while (!document.querySelector(".trigger-detail-heading h1") && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      return {
+        title: document.querySelector(".trigger-detail-heading h1")?.textContent,
+        status: document.querySelector(".run-status")?.textContent?.trim(),
+        empty: document.querySelector(".empty-recent-runs")?.textContent,
+        count: document.querySelectorAll(".recent-runs-list li").length,
+      };
+    })()`,
+  )) as {
+    title?: string;
+    status?: string;
+    empty?: string;
+    count?: number;
+  };
+  if (
+    listenerPage.title !== "Silent Listener" ||
+    listenerPage.status !== undefined ||
+    listenerPage.empty !== "This Trigger has not run yet." ||
+    listenerPage.count !== 0
+  ) {
+    throw new Error(
+      `Desktop UI exposed a Service lifecycle execution: ${JSON.stringify(listenerPage)}`,
+    );
+  }
+  const interruptedServiceExecution =
+    server.system.database.createExecution({
+      id: "smoke-interrupted-service-execution",
+      triggerId: listenerTrigger.details.trigger.id,
+      revisionId: listenerTrigger.details.revision.id,
+      kind: "service",
+      status: "running",
+      event: { type: "service", startedAt: new Date().toISOString() },
+    });
+  server.system.database.addNotification({
+    id: "smoke-service-notification",
+    triggerId: listenerTrigger.details.trigger.id,
+    executionId: interruptedServiceExecution.id,
+    output: {
+      message: "Historical service notification",
+      data: {},
+    },
+    status: "recorded",
+    createdAt: new Date().toISOString(),
+  });
+  server.system.database.finishExecution(
+    interruptedServiceExecution.id,
+    "interrupted",
+    "Trigger host restarted during execution",
+  );
+  const historicalServiceNotification =
+    (await window.webContents.executeJavaScript(
+      `(async () => {
+        const deadline = Date.now() + 4_000;
+        while (
+          document.querySelector(".recent-run-copy p")?.textContent !==
+            "Historical service notification" &&
+          Date.now() < deadline
+        ) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        return {
+          message: document.querySelector(".recent-run-copy p")?.textContent,
+          status: document.querySelector(".run-status")?.textContent?.trim(),
+          error: document.querySelector(".recent-run-copy small")?.textContent,
+          count: document.querySelectorAll(".recent-runs-list li").length,
+        };
+      })()`,
+    )) as {
+      message?: string;
+      status?: string;
+      error?: string;
+      count?: number;
+    };
+  if (
+    historicalServiceNotification.message !==
+      "Historical service notification" ||
+    historicalServiceNotification.status !== "Succeeded" ||
+    historicalServiceNotification.error !== undefined ||
+    historicalServiceNotification.count !== 1
+  ) {
+    throw new Error(
+      `Desktop UI inherited a Service lifecycle error: ${JSON.stringify(historicalServiceNotification)}`,
+    );
+  }
+  const deletion = (await window.webContents.executeJavaScript(
+    `(async () => {
+      document.querySelector(".delete-trigger-button")?.click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const dialogTitle = document.querySelector("#delete-dialog-title")?.textContent;
+      document.querySelector(".dialog-cancel-button")?.click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const cancelled = !document.querySelector(".confirmation-dialog");
+
+      document.querySelector(".delete-trigger-button")?.click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      document.querySelector(".dialog-delete-button")?.click();
+      const deadline = Date.now() + 4_000;
+      while (!document.querySelector(".active-triggers-title") && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      return {
+        dialogTitle,
+        cancelled,
+        returnedTitle: document.querySelector(".active-triggers-title")?.textContent,
+        deletedCard: Boolean(document.querySelector('[aria-label="Open Silent Listener"]')),
+      };
+    })()`,
+  )) as {
+    dialogTitle?: string;
+    cancelled?: boolean;
+    returnedTitle?: string;
+    deletedCard?: boolean;
+  };
+  if (
+    deletion.dialogTitle !== "Delete this Trigger?" ||
+    deletion.cancelled !== true ||
+    deletion.returnedTitle !== "Active Triggers" ||
+    deletion.deletedCard !== false ||
+    server.system.database.getTrigger(listenerTrigger.details.trigger.id) !== null
+  ) {
+    throw new Error(
+      `Desktop UI Trigger deletion failed: ${JSON.stringify(deletion)}`,
     );
   }
 
@@ -783,6 +1047,42 @@ async function startDesktop(): Promise<void> {
       );
     },
   );
+  ipcMain.handle(
+    "desktop:set-codex-options",
+    (_event, triggerId: unknown, options: unknown) => {
+      if (
+        typeof triggerId !== "string" ||
+        typeof options !== "object" ||
+        options === null ||
+        Array.isArray(options)
+      ) {
+        throw new Error("Invalid Codex options update");
+      }
+      const update = options as Record<string, unknown>;
+      const model = update.model;
+      const reasoningEffort = update.reasoningEffort;
+      if (
+        (model !== undefined && !isCodexModel(model)) ||
+        (reasoningEffort !== undefined &&
+          !isCodexReasoningEffort(reasoningEffort)) ||
+        (model === undefined && reasoningEffort === undefined)
+      ) {
+        throw new Error("Invalid Codex options update");
+      }
+      return setCodexOptions(triggerServer!, triggerId, {
+        ...(model !== undefined ? { model } : {}),
+        ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+      });
+    },
+  );
+  ipcMain.handle("desktop:delete-trigger", async (_event, triggerId: unknown) => {
+    if (typeof triggerId !== "string" || triggerId.trim() === "") {
+      throw new Error("Invalid Trigger ID");
+    }
+    if (!(await triggerServer!.system.deleteTrigger(triggerId))) {
+      throw new Error("Trigger not found");
+    }
+  });
   ipcMain.handle("desktop:open-codex-new-chat", openCodexNewChat);
   ipcMain.handle("desktop:open-codex-thread", (_event, threadId: unknown) => {
     if (typeof threadId !== "string" || threadId.trim() === "") {

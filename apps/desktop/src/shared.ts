@@ -21,6 +21,8 @@ export type TriggerRunStatus =
   | "interrupted";
 
 export type DeliveryRunStatus = "queued" | "running" | "succeeded" | "failed";
+export type CodexModel = "luna" | "terra" | "sol";
+export type CodexReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 export type TriggerPageData = {
   trigger: ActiveTrigger & {
@@ -51,8 +53,8 @@ export type TriggerPageData = {
     projectPath: string;
     newThread: boolean;
     threadId: string | null;
-    model: "luna" | "terra" | "sol";
-    reasoningEffort: "low" | "medium" | "high" | "xhigh";
+    model: CodexModel;
+    reasoningEffort: CodexReasoningEffort;
     showInCodex: boolean;
   } | null;
   recentRuns: Array<{
@@ -83,6 +85,14 @@ export type DesktopApi = {
     triggerId: string,
     showInCodex: boolean,
   ): Promise<TriggerPageData>;
+  setCodexOptions(
+    triggerId: string,
+    options: {
+      model?: CodexModel;
+      reasoningEffort?: CodexReasoningEffort;
+    },
+  ): Promise<TriggerPageData>;
+  deleteTrigger(triggerId: string): Promise<void>;
   openCodexNewChat(): Promise<void>;
   openCodexThread(threadId: string): Promise<void>;
   getWebhookTunnelSettings(): Promise<WebhookTunnelSettings>;
