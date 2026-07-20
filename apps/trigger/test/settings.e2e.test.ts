@@ -54,6 +54,7 @@ test("webhook tunnel settings expose and apply the public webhook URL", async ()
   const publicUrl = await fetch(`${controlOrigin}/v1/public-webhook-url`);
   assert.deepEqual(await publicUrl.json(), {
     publicWebhookUrl: "https://device.example.ts.net/codex-triggers",
+    error: null,
   });
 
   const created = await fetch(`${controlOrigin}/v1/triggers`, {
@@ -84,5 +85,11 @@ test("webhook tunnel settings expose and apply the public webhook URL", async ()
     enabled: false,
     publicWebhookUrl: null,
     error: null,
+  });
+
+  const unavailableUrl = await fetch(`${controlOrigin}/v1/public-webhook-url`);
+  assert.deepEqual(await unavailableUrl.json(), {
+    publicWebhookUrl: null,
+    error: "Tailscale webhook tunnel has not been started",
   });
 });

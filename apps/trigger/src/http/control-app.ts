@@ -5,6 +5,7 @@ import { registerDeliveryRoutes } from "../delivery/http/delivery-routes.js";
 import type { TriggerSystem } from "../orchestration/trigger-system.js";
 import { registerObservabilityRoutes } from "./routes/observability-routes.js";
 import { registerSettingsRoutes } from "./routes/settings-routes.js";
+import { registerTriggerSystemRoutes } from "./routes/trigger-system-routes.js";
 import { registerTriggerRoutes } from "./routes/trigger-routes.js";
 
 export function createControlApp(system: TriggerSystem): Hono {
@@ -41,5 +42,6 @@ export function createControlApp(system: TriggerSystem): Hono {
   registerDeliveryRoutes(app, system);
   registerObservabilityRoutes(app, system);
   registerSettingsRoutes(app, system);
+  registerTriggerSystemRoutes(app, system);
   return app;
 }

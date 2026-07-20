@@ -7,7 +7,9 @@ export {
   BUILT_IN_DELIVERY_SERVICE_TYPES,
   TriggerSystem,
   type BuiltInDeliveryServiceType,
+  type CreatedTriggerSystem,
   type CreatedTrigger,
+  type CreateTriggerSystemInput,
   type TriggerSystemOptions,
 } from "./orchestration/trigger-system.js";
 export {

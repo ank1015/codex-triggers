@@ -3,7 +3,11 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import type { TriggerConfig } from "../config/index.js";
-import type { DeliveryService } from "../delivery/domain/types.js";
+import type {
+  CreateDeliveryInput,
+  DeliveryDetails,
+  DeliveryService,
+} from "../delivery/domain/types.js";
 import { DeliverySystem } from "../delivery/orchestration/delivery-system.js";
 import {
   CodexAppDeliveryService,
@@ -60,6 +64,16 @@ export type TriggerSystemOptions = {
   deliveryServices?: DeliveryService[];
   builtInDeliveryServices?: readonly BuiltInDeliveryServiceType[];
   webhookTunnel?: WebhookTunnel;
+};
+
+export type CreateTriggerSystemInput = {
+  trigger: CreateTriggerInput;
+  delivery: Omit<CreateDeliveryInput, "triggerId">;
+};
+
+export type CreatedTriggerSystem = {
+  trigger: CreatedTrigger;
+  delivery: DeliveryDetails;
 };
 
 function webhookHash(token: string): string {
@@ -302,10 +316,46 @@ export class TriggerSystem {
   async deleteTrigger(triggerId: string): Promise<boolean> {
     const trigger = this.database.getTrigger(triggerId);
     if (!trigger) return false;
+    const revisions = this.database.listRevisions(triggerId);
     if (trigger.kind === "service") {
       await this.services.stopOne(triggerId, "Service Trigger deleted");
     }
-    return this.database.deleteTrigger(triggerId);
+    const deleted = this.database.deleteTrigger(triggerId);
+    if (deleted) {
+      await Promise.all(
+        revisions.map(({ id }) => this.codeStore.remove(id)),
+      );
+    }
+    return deleted;
+  }
+
+  async createTriggerSystem(
+    input: CreateTriggerSystemInput,
+  ): Promise<CreatedTriggerSystem> {
+    this.delivery.validateServiceConfigurations(input.delivery.services);
+    const shouldEnableTrigger = input.trigger.enabled;
+    const trigger = await this.createTrigger({
+      ...input.trigger,
+      enabled: false,
+    });
+
+    try {
+      const delivery = this.delivery.create({
+        ...input.delivery,
+        triggerId: trigger.details.trigger.id,
+      });
+      if (shouldEnableTrigger) {
+        const details = await this.updateTrigger(trigger.details.trigger.id, {
+          enabled: true,
+        });
+        if (!details) throw new Error("Created Trigger could not be enabled");
+        trigger.details = details;
+      }
+      return { trigger, delivery };
+    } catch (error) {
+      await this.deleteTrigger(trigger.details.trigger.id);
+      throw error;
+    }
   }
 
   async setServiceEnabled(
@@ -336,9 +386,19 @@ export class TriggerSystem {
     return status;
   }
 
-  async getPublicWebhookUrl(): Promise<string | null> {
+  async getPublicWebhookUrlStatus(): Promise<{
+    publicWebhookUrl: string | null;
+    error: string | null;
+  }> {
     const status = await this.getWebhookTunnelStatus();
-    return status.publicWebhookUrl ?? this.config.publicBaseUrl;
+    const publicWebhookUrl = status.publicWebhookUrl ?? this.config.publicBaseUrl;
+    return {
+      publicWebhookUrl,
+      error:
+        publicWebhookUrl !== null
+          ? null
+          : status.error ?? "Tailscale webhook tunnel has not been started",
+    };
   }
 
   async activateRevision(

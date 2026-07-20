@@ -18,6 +18,6 @@ export function registerSettingsRoutes(app: Hono, system: TriggerSystem): void {
   });
 
   app.get("/v1/public-webhook-url", async (c) =>
-    c.json({ publicWebhookUrl: await system.getPublicWebhookUrl() }),
+    c.json(await system.getPublicWebhookUrlStatus()),
   );
 }
