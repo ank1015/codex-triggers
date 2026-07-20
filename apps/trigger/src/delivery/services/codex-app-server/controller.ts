@@ -39,8 +39,31 @@ type ThreadResponse = {
   thread?: { id?: string };
 };
 
+type Turn = {
+  id?: string;
+  status?: "completed" | "interrupted" | "failed" | "inProgress";
+  error?: unknown;
+};
+
+type TurnResponse = {
+  turn?: Turn;
+};
+
+type TurnCompletedNotification = {
+  threadId?: string;
+  turn?: Turn;
+};
+
+type PendingTurn = {
+  resolve(turn: Turn): void;
+  reject(error: Error): void;
+  cleanup(): void;
+};
+
 class CodexAppServerClient {
   private readonly pending = new Map<number, PendingRequest>();
+  private readonly pendingTurns = new Map<string, PendingTurn>();
+  private readonly completedTurns = new Map<string, Turn>();
   private nextRequestId = 1;
   private stderr = "";
   private exited = false;
@@ -68,11 +91,13 @@ class CodexAppServerClient {
         request.reject(new Error(reason));
       }
       this.pending.clear();
+      this.rejectPendingTurns(new Error(reason));
     });
     child.once("error", (error) => {
       this.exited = true;
       for (const request of this.pending.values()) request.reject(error);
       this.pending.clear();
+      this.rejectPendingTurns(error);
     });
   }
 
@@ -132,6 +157,37 @@ class CodexAppServerClient {
     await this.write({ method, params });
   }
 
+  async waitForTurnCompletion(
+    threadId: string,
+    turnId: string,
+    signal: AbortSignal,
+  ): Promise<Turn> {
+    const key = turnKey(threadId, turnId);
+    const completed = this.completedTurns.get(key);
+    if (completed) {
+      this.completedTurns.delete(key);
+      return completed;
+    }
+    if (signal.aborted) throw abortError(signal);
+
+    return await new Promise<Turn>((resolvePromise, rejectPromise) => {
+      const abort = () => {
+        const pending = this.pendingTurns.get(key);
+        if (pending !== waiter) return;
+        this.pendingTurns.delete(key);
+        waiter.cleanup();
+        rejectPromise(abortError(signal));
+      };
+      const waiter: PendingTurn = {
+        resolve: resolvePromise,
+        reject: rejectPromise,
+        cleanup: () => signal.removeEventListener("abort", abort),
+      };
+      this.pendingTurns.set(key, waiter);
+      signal.addEventListener("abort", abort, { once: true });
+    });
+  }
+
   async stop(): Promise<void> {
     if (this.exited) return;
     this.stopping = true;
@@ -179,7 +235,38 @@ class CodexAppServerClient {
           message: `Trigger does not support interactive app-server request ${message.method}`,
         },
       });
+      return;
     }
+
+    if (message.method === "turn/completed") {
+      const completion = message.params as TurnCompletedNotification | undefined;
+      const threadId = completion?.threadId;
+      const turn = completion?.turn;
+      const turnId = turn?.id;
+      if (!threadId || !turnId || !turn) return;
+      const key = turnKey(threadId, turnId);
+      const pending = this.pendingTurns.get(key);
+      if (pending) {
+        this.pendingTurns.delete(key);
+        pending.cleanup();
+        pending.resolve(turn);
+        return;
+      }
+      this.completedTurns.set(key, turn);
+      while (this.completedTurns.size > 100) {
+        const oldest = this.completedTurns.keys().next().value;
+        if (oldest === undefined) break;
+        this.completedTurns.delete(oldest);
+      }
+    }
+  }
+
+  private rejectPendingTurns(error: Error): void {
+    for (const pending of this.pendingTurns.values()) {
+      pending.cleanup();
+      pending.reject(error);
+    }
+    this.pendingTurns.clear();
   }
 
   private async write(message: JsonRpcMessage): Promise<void> {
@@ -193,6 +280,27 @@ class CodexAppServerClient {
       });
     });
   }
+}
+
+function turnKey(threadId: string, turnId: string): string {
+  return `${threadId}:${turnId}`;
+}
+
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error("Codex app-server delivery was aborted");
+}
+
+function turnError(turn: Turn): string {
+  if (typeof turn.error === "object" && turn.error !== null) {
+    const message = (turn.error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim() !== "") return message;
+  }
+  if (typeof turn.error === "string" && turn.error.trim() !== "") {
+    return turn.error;
+  }
+  return turn.status ?? "unknown status";
 }
 
 async function waitForSpawn(
@@ -290,7 +398,7 @@ export class ProcessCodexAppServerController
       throw new Error("Codex app-server did not return a thread ID");
     }
 
-    await client.request("turn/start", {
+    const turnResult = (await client.request("turn/start", {
       threadId,
       model,
       effort: request.reasoningEffort,
@@ -298,7 +406,31 @@ export class ProcessCodexAppServerController
         { type: "text", text: request.prompt },
         ...images,
       ],
-    });
+    })) as TurnResponse;
+    const startedTurn = turnResult.turn;
+    const turnId = startedTurn?.id;
+    if (!turnId) throw new Error("Codex app-server did not return a turn ID");
+
+    if (startedTurn.status === "completed") return { threadId };
+    if (
+      startedTurn.status === "failed" ||
+      startedTurn.status === "interrupted"
+    ) {
+      throw new Error(
+        `Codex turn ${startedTurn.status}: ${turnError(startedTurn)}`,
+      );
+    }
+
+    const completedTurn = await client.waitForTurnCompletion(
+      threadId,
+      turnId,
+      request.signal,
+    );
+    if (completedTurn.status !== "completed") {
+      throw new Error(
+        `Codex turn ${completedTurn.status ?? "failed"}: ${turnError(completedTurn)}`,
+      );
+    }
     return { threadId };
   }
 
