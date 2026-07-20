@@ -112,6 +112,22 @@ button {
   border: 1px solid #242424;
   padding: 18px;
   background: #090909;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.trigger-card:hover {
+  border-color: #3a3a3a;
+  background: #0d0d0d;
+}
+
+.trigger-card:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
 }
 
 .trigger-card-meta {
@@ -170,6 +186,284 @@ button {
 .add-trigger-card:focus-visible {
   outline: 2px solid #ffffff;
   outline-offset: 3px;
+}
+
+.trigger-detail-content {
+  width: min(100%, 920px);
+  min-height: calc(100vh - 72px);
+  margin: 0 auto;
+}
+
+.trigger-detail-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 34px;
+}
+
+.trigger-detail-heading h1 {
+  overflow: hidden;
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-section {
+  margin-top: 30px;
+}
+
+.detail-section > h2 {
+  margin: 0 0 12px;
+  color: #d4d4d8;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.detail-card {
+  border: 1px solid #242424;
+  border-radius: 13px;
+  background: #090909;
+}
+
+.event-card {
+  padding: 18px;
+}
+
+.trigger-type-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #303036;
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #b4b4bb;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.code-block,
+.codex-prompt pre {
+  overflow: auto;
+  margin: 16px 0 0;
+  border: 1px solid #202024;
+  border-radius: 9px;
+  background: #030303;
+  color: #d4d4d8;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre;
+}
+
+.code-block {
+  max-height: 320px;
+  padding: 15px;
+}
+
+.codex-options-card {
+  padding: 18px;
+}
+
+.detail-label {
+  color: #85858d;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.codex-prompt pre {
+  max-height: 190px;
+  padding: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.codex-options-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 28px;
+  margin: 22px 0 0;
+}
+
+.codex-options-grid div {
+  min-width: 0;
+}
+
+.codex-options-grid dt {
+  margin-bottom: 6px;
+  color: #77777f;
+  font-size: 12px;
+}
+
+.codex-options-grid dd {
+  overflow: hidden;
+  margin: 0;
+  color: #e4e4e7;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-persistence-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 22px;
+  border-top: 1px solid #202024;
+  padding-top: 18px;
+}
+
+.codex-persistence-row span {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.codex-persistence-row p {
+  margin: 4px 0 0;
+  color: #77777f;
+  font-size: 12px;
+}
+
+.empty-detail-card,
+.empty-recent-runs {
+  color: #77777f;
+  font-size: 13px;
+}
+
+.empty-detail-card {
+  padding: 22px;
+}
+
+.recent-runs-card {
+  overflow: hidden;
+}
+
+.empty-recent-runs {
+  margin: 0;
+  padding: 22px;
+}
+
+.recent-runs-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recent-runs-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 18px;
+}
+
+.recent-runs-list li + li {
+  border-top: 1px solid #202024;
+}
+
+.recent-run-copy {
+  min-width: 0;
+}
+
+.recent-run-copy p {
+  overflow: hidden;
+  margin: 0 0 5px;
+  color: #e4e4e7;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-run-copy span,
+.recent-run-copy small {
+  display: block;
+  color: #77777f;
+  font-size: 11px;
+}
+
+.recent-run-copy small {
+  overflow: hidden;
+  max-width: 460px;
+  margin-top: 6px;
+  color: #f87171;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-run-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.run-status {
+  color: #a1a1aa;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.run-status-succeeded {
+  color: #6ee7a5;
+}
+
+.run-status-failed,
+.run-status-timed_out,
+.run-status-interrupted {
+  color: #f87171;
+}
+
+.run-status-running,
+.run-status-queued {
+  color: #facc66;
+}
+
+.open-codex-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #34343a;
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: #151517;
+  color: #e4e4e7;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.open-codex-button:hover {
+  border-color: #52525b;
+  background: #202024;
+}
+
+.open-codex-button:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
+}
+
+.trigger-page-error {
+  margin: 0;
+  color: #f87171;
+  font-size: 13px;
+}
+
+@media (max-width: 620px) {
+  .codex-options-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .recent-runs-list li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
 }
 
 .create-trigger-title {

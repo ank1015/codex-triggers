@@ -1,11 +1,30 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { ArrowLeft, Plus, Settings } from "lucide-react";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useMutation,
+  useQuery,
+} from "@tanstack/react-query";
+import { ArrowLeft, ExternalLink, Plus, Settings } from "lucide-react";
 
 import type {
   ActiveTrigger,
+  DeliveryRunStatus,
+  TriggerPageData,
+  TriggerRunStatus,
   WebhookTunnelSettings,
 } from "./shared.js";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1_000,
+      retry: 1,
+      refetchOnWindowFocus: "always",
+    },
+  },
+});
 
 function Header({
   onBack,
@@ -50,43 +69,61 @@ function triggerKindLabel(kind: ActiveTrigger["kind"]): string {
   }
 }
 
-function TriggerCard({ trigger }: { trigger: ActiveTrigger }) {
+function TriggerCard({
+  trigger,
+  onOpen,
+}: {
+  trigger: ActiveTrigger;
+  onOpen: (trigger: ActiveTrigger) => void;
+}) {
   return (
-    <article className="trigger-card">
+    <button
+      className="trigger-card"
+      type="button"
+      aria-label={`Open ${trigger.name}`}
+      onClick={() => onOpen(trigger)}
+    >
       <div className="trigger-card-meta">
         <span className="active-indicator" aria-hidden="true" />
         <span>Active</span>
       </div>
       <h2>{trigger.name}</h2>
       <p>{triggerKindLabel(trigger.kind)} Trigger</p>
-    </article>
+    </button>
   );
 }
 
-function ActiveTriggers({ onCreate }: { onCreate: () => void }) {
-  const [triggers, setTriggers] = useState<ActiveTrigger[]>([]);
+function ActiveTriggers({
+  onCreate,
+  onOpenTrigger,
+}: {
+  onCreate: () => void;
+  onOpenTrigger: (trigger: ActiveTrigger) => void;
+}) {
+  const {
+    data: triggers = [],
+    error,
+  } = useQuery({
+    queryKey: ["active-triggers"],
+    queryFn: () => window.desktop.listActiveTriggers(),
+    refetchInterval: 1_000,
+    refetchIntervalInBackground: true,
+  });
 
   useEffect(() => {
-    let cancelled = false;
-    void window.desktop
-      .listActiveTriggers()
-      .then((activeTriggers) => {
-        if (!cancelled) setTriggers(activeTriggers);
-      })
-      .catch((error: unknown) => {
-        console.error("Could not load active Triggers", error);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (error) console.error("Could not load active Triggers", error);
+  }, [error]);
 
   return (
     <main className="main-content">
       <h1 className="active-triggers-title">Active Triggers</h1>
       <section className="trigger-grid" aria-label="Active Triggers">
         {triggers.map((trigger) => (
-          <TriggerCard key={trigger.id} trigger={trigger} />
+          <TriggerCard
+            key={trigger.id}
+            trigger={trigger}
+            onOpen={onOpenTrigger}
+          />
         ))}
         <button
           className="add-trigger-card"
@@ -96,6 +133,216 @@ function ActiveTriggers({ onCreate }: { onCreate: () => void }) {
         >
           <Plus aria-hidden="true" size={28} strokeWidth={1.6} />
         </button>
+      </section>
+    </main>
+  );
+}
+
+function runStatusLabel(
+  triggerStatus: TriggerRunStatus,
+  deliveryStatus: DeliveryRunStatus | null,
+): string {
+  if (deliveryStatus === "succeeded") return "Delivered";
+  if (deliveryStatus === "failed") return "Delivery failed";
+  if (deliveryStatus === "running") return "Delivering";
+  if (deliveryStatus === "queued") return "Delivery queued";
+  switch (triggerStatus) {
+    case "queued":
+      return "Queued";
+    case "running":
+      return "Running";
+    case "succeeded":
+      return "Succeeded";
+    case "failed":
+      return "Failed";
+    case "timed_out":
+      return "Timed out";
+    case "interrupted":
+      return "Interrupted";
+  }
+}
+
+function formatTimestamp(timestamp: string): string {
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime())
+    ? timestamp
+    : new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(date);
+}
+
+function TriggerPage({ trigger }: { trigger: ActiveTrigger }) {
+  const queryKey = ["trigger-page", trigger.id] as const;
+  const { data, error, isLoading } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const page = await window.desktop.getTriggerPage(trigger.id);
+      if (!page) throw new Error("Trigger not found");
+      return page;
+    },
+    refetchInterval: 1_000,
+    refetchIntervalInBackground: true,
+  });
+  const enabledMutation = useMutation({
+    mutationFn: (enabled: boolean) =>
+      window.desktop.setTriggerEnabled(trigger.id, enabled),
+    onSuccess: (page) => {
+      queryClient.setQueryData(queryKey, page);
+      void queryClient.invalidateQueries({ queryKey: ["active-triggers"] });
+    },
+  });
+  const showInCodexMutation = useMutation({
+    mutationFn: (showInCodex: boolean) =>
+      window.desktop.setCodexShowInCodex(trigger.id, showInCodex),
+    onSuccess: (page) => queryClient.setQueryData(queryKey, page),
+  });
+
+  if (isLoading) {
+    return <main className="main-content trigger-detail-content" />;
+  }
+  if (error || !data) {
+    return (
+      <main className="main-content trigger-detail-content">
+        <p className="trigger-page-error">
+          {error instanceof Error ? error.message : "Could not load Trigger"}
+        </p>
+      </main>
+    );
+  }
+
+  const openThread = (threadId: string) => {
+    void window.desktop.openCodexThread(threadId).catch((openError: unknown) => {
+      console.error("Could not open Codex task", openError);
+    });
+  };
+
+  return (
+    <main
+      className="main-content trigger-detail-content"
+      aria-label={`Trigger: ${data.trigger.name}`}
+      data-trigger-id={data.trigger.id}
+    >
+      <div className="trigger-detail-heading">
+        <h1>{data.trigger.name}</h1>
+        <button
+          className="toggle-switch"
+          type="button"
+          role="switch"
+          aria-label="Trigger enabled"
+          aria-checked={data.trigger.enabled}
+          disabled={enabledMutation.isPending}
+          onClick={() => enabledMutation.mutate(!data.trigger.enabled)}
+        >
+          <span />
+        </button>
+      </div>
+
+      <section className="detail-section" aria-labelledby="event-title">
+        <h2 id="event-title">Event</h2>
+        <div className="detail-card event-card">
+          <span className="trigger-type-badge">
+            {triggerKindLabel(data.trigger.kind)} Trigger
+          </span>
+          <pre className="code-block"><code>{data.event.code}</code></pre>
+        </div>
+      </section>
+
+      <section className="detail-section" aria-labelledby="codex-options-title">
+        <h2 id="codex-options-title">Codex Options</h2>
+        {data.codex ? (
+          <div className="detail-card codex-options-card">
+            <div className="codex-prompt">
+              <span className="detail-label">System Prompt</span>
+              <pre><code>{data.codex.prompt}</code></pre>
+            </div>
+
+            <dl className="codex-options-grid">
+              <div>
+                <dt>Model</dt>
+                <dd>{data.codex.model}</dd>
+              </div>
+              <div>
+                <dt>Reasoning</dt>
+                <dd>{data.codex.reasoningEffort}</dd>
+              </div>
+              <div>
+                <dt>Project / Working Directory</dt>
+                <dd>{data.codex.projectPath || "No project"}</dd>
+              </div>
+              {data.codex.threadId ? (
+                <div>
+                  <dt>Thread ID</dt>
+                  <dd>{data.codex.threadId}</dd>
+                </div>
+              ) : null}
+            </dl>
+
+            <div className="codex-persistence-row">
+              <div>
+                <span>Show in Codex</span>
+                <p>Save created tasks in the Codex sidebar.</p>
+              </div>
+              <button
+                className="toggle-switch"
+                type="button"
+                role="switch"
+                aria-label="Show in Codex"
+                aria-checked={data.codex.showInCodex}
+                disabled={showInCodexMutation.isPending}
+                onClick={() =>
+                  showInCodexMutation.mutate(!data.codex!.showInCodex)
+                }
+              >
+                <span />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="detail-card empty-detail-card">
+            No Codex Delivery is configured.
+          </div>
+        )}
+      </section>
+
+      <section className="detail-section" aria-labelledby="recent-triggers-title">
+        <h2 id="recent-triggers-title">Recent Triggers</h2>
+        <div className="detail-card recent-runs-card">
+          {data.recentRuns.length === 0 ? (
+            <p className="empty-recent-runs">This Trigger has not run yet.</p>
+          ) : (
+            <ul className="recent-runs-list">
+              {data.recentRuns.map((run) => (
+                <li key={run.id}>
+                  <div className="recent-run-copy">
+                    <p>{run.message ?? "Trigger run"}</p>
+                    <span>{formatTimestamp(run.createdAt)}</span>
+                    {run.deliveryError ?? run.error ? (
+                      <small>{run.deliveryError ?? run.error}</small>
+                    ) : null}
+                  </div>
+                  <div className="recent-run-actions">
+                    <span
+                      className={`run-status run-status-${run.deliveryStatus ?? run.status}`}
+                    >
+                      {runStatusLabel(run.status, run.deliveryStatus)}
+                    </span>
+                    {data.codex?.showInCodex && run.threadId ? (
+                      <button
+                        className="open-codex-button"
+                        type="button"
+                        onClick={() => openThread(run.threadId!)}
+                      >
+                        Open in Codex
+                        <ExternalLink aria-hidden="true" size={14} />
+                      </button>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
     </main>
   );
@@ -197,10 +444,13 @@ function SettingsPage() {
   );
 }
 
-type Page = "home" | "create" | "settings";
+type Page = "home" | "create" | "trigger" | "settings";
 
 function App() {
   const [page, setPage] = useState<Page>("home");
+  const [selectedTrigger, setSelectedTrigger] = useState<ActiveTrigger | null>(
+    null,
+  );
   const [settingsReturnPage, setSettingsReturnPage] = useState<
     Exclude<Page, "settings">
   >("home");
@@ -214,19 +464,36 @@ function App() {
     setPage(page === "settings" ? settingsReturnPage : "home");
   };
 
+  const openTrigger = (trigger: ActiveTrigger) => {
+    setSelectedTrigger(trigger);
+    setPage("trigger");
+  };
+
+  const pageContent = (() => {
+    switch (page) {
+      case "home":
+        return (
+          <ActiveTriggers
+            onCreate={() => setPage("create")}
+            onOpenTrigger={openTrigger}
+          />
+        );
+      case "create":
+        return <CreateTriggerPage />;
+      case "trigger":
+        return selectedTrigger ? <TriggerPage trigger={selectedTrigger} /> : null;
+      case "settings":
+        return <SettingsPage />;
+    }
+  })();
+
   return (
     <div className="app-shell">
       <Header
         onBack={page === "home" ? undefined : goBack}
         onSettings={page === "settings" ? undefined : openSettings}
       />
-      {page === "home" ? (
-        <ActiveTriggers onCreate={() => setPage("create")} />
-      ) : page === "create" ? (
-        <CreateTriggerPage />
-      ) : (
-        <SettingsPage />
-      )}
+      {pageContent}
     </div>
   );
 }
@@ -236,6 +503,8 @@ if (!rootElement) throw new Error("React root element is missing");
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
   </StrictMode>,
 );

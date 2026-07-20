@@ -12,11 +12,12 @@
     "dev": "pnpm build:trigger && pnpm build && electron .",
     "start": "electron .",
     "test": "pnpm smoke",
-    "smoke": "pnpm build:trigger && pnpm build && TRIGGER_DESKTOP_SMOKE_TEST=1 electron .",
+    "smoke": "pnpm build:trigger && pnpm build && TRIGGER_ADMIN_TOKEN=must-be-ignored TRIGGER_DESKTOP_SMOKE_TEST=1 electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@codexmaxxing/trigger": "workspace:*",
+    "@tanstack/react-query": "^5.101.3",
     "lucide-react": "^1.25.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
