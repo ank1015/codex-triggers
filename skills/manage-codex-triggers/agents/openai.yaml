@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manage Codex Triggers"
+  short_description: "Create Triggers delivered through Codex app-server"
+  default_prompt: "Use $manage-codex-triggers to create a local Trigger automation with a Codex delivery."
