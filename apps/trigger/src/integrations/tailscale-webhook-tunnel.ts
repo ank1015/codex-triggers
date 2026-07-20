@@ -28,6 +28,7 @@ type FunnelStatus = {
 export type TailscaleWebhookTunnelOptions = {
   port: number;
   executable?: string;
+  runCommand?: (args: string[], timeoutMs: number) => Promise<string>;
 };
 
 function commandError(error: unknown): string {
@@ -36,26 +37,51 @@ function commandError(error: unknown): string {
   return details.stderr?.trim() || error.message;
 }
 
+function friendlyTailscaleError(error: unknown): string {
+  const message = commandError(error).replace(/\s+/g, " ").trim();
+  if (/tailscale is stopped/i.test(message)) {
+    return "Tailscale is stopped. Start Tailscale and try again.";
+  }
+  if (/\bENOENT\b|not found/i.test(message)) {
+    return "Tailscale is not installed or its CLI is unavailable.";
+  }
+  return message || "Tailscale could not update the webhook tunnel.";
+}
+
 export class TailscaleWebhookTunnel implements WebhookTunnel {
   private readonly executable: string;
+  private readonly runCommand: (
+    args: string[],
+    timeoutMs: number,
+  ) => Promise<string>;
 
   constructor(private readonly options: TailscaleWebhookTunnelOptions) {
     this.executable = options.executable ?? "tailscale";
+    this.runCommand =
+      options.runCommand ??
+      (async (args, timeoutMs) => {
+        const { stdout } = await execFileAsync(this.executable, args, {
+          encoding: "utf8",
+          timeout: timeoutMs,
+          maxBuffer: 1_000_000,
+        });
+        return stdout;
+      });
   }
 
   async status(): Promise<WebhookTunnelStatus> {
     try {
-      const { stdout } = await execFileAsync(
-        this.executable,
+      await this.runCommand(["status", "--json"], 15_000);
+      const stdout = await this.runCommand(
         ["funnel", "status", "--json"],
-        { encoding: "utf8", timeout: 15_000, maxBuffer: 1_000_000 },
+        15_000,
       );
       return this.parseStatus(JSON.parse(stdout) as FunnelStatus);
     } catch (error) {
       return {
         enabled: false,
         publicWebhookUrl: null,
-        error: commandError(error),
+        error: friendlyTailscaleError(error),
       };
     }
   }
@@ -66,28 +92,28 @@ export class TailscaleWebhookTunnel implements WebhookTunnel {
       "--bg",
       "--yes",
       `--set-path=${WEBHOOK_FUNNEL_PATH}`,
-      String(this.options.port),
     ];
-    if (!enabled) args.push("off");
+    args.push(enabled ? String(this.options.port) : "off");
 
     try {
-      await execFileAsync(this.executable, args, {
-        encoding: "utf8",
-        timeout: 30_000,
-        maxBuffer: 1_000_000,
-      });
+      await this.runCommand(args, 30_000);
     } catch (error) {
-      throw new Error(`Tailscale Funnel could not be updated: ${commandError(error)}`);
+      const status = await this.status();
+      return {
+        ...status,
+        error: friendlyTailscaleError(error),
+      };
     }
 
     const status = await this.status();
-    if (status.error) {
-      throw new Error(`Tailscale Funnel status could not be read: ${status.error}`);
-    }
+    if (status.error) return status;
     if (status.enabled !== enabled) {
-      throw new Error(
-        `Tailscale Funnel did not ${enabled ? "start" : "stop"} for the webhook listener`,
-      );
+      return {
+        ...status,
+        error: `Tailscale Funnel did not ${
+          enabled ? "start" : "stop"
+        } for the webhook listener.`,
+      };
     }
     return status;
   }

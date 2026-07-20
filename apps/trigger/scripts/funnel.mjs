@@ -2,10 +2,12 @@ import { spawnSync } from "node:child_process";
 
 const action = process.argv[2] ?? "start";
 const port = process.env.TRIGGER_PUBLIC_PORT ?? "47832";
+const path = "/codex-triggers";
+const route = ["funnel", "--bg", "--yes", `--set-path=${path}`, port];
 const argumentsByAction = {
-  start: ["funnel", "--bg", "--yes", port],
+  start: route,
   status: ["funnel", "status"],
-  reset: ["funnel", "reset"],
+  reset: ["funnel", "--bg", "--yes", `--set-path=${path}`, "off"],
 };
 const args = argumentsByAction[action];
 
