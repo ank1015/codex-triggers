@@ -6,10 +6,19 @@ import {
   useMutation,
   useQuery,
 } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, Plus, Settings } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronDown,
+  ExternalLink,
+  Plus,
+  Settings,
+  Trash2,
+} from "lucide-react";
 
 import type {
   ActiveTrigger,
+  CodexModel,
+  CodexReasoningEffort,
   DeliveryRunStatus,
   TriggerPageData,
   TriggerRunStatus,
@@ -142,10 +151,10 @@ function runStatusLabel(
   triggerStatus: TriggerRunStatus,
   deliveryStatus: DeliveryRunStatus | null,
 ): string {
-  if (deliveryStatus === "succeeded") return "Delivered";
-  if (deliveryStatus === "failed") return "Delivery failed";
-  if (deliveryStatus === "running") return "Delivering";
-  if (deliveryStatus === "queued") return "Delivery queued";
+  if (deliveryStatus === "succeeded") return "Completed";
+  if (deliveryStatus === "failed") return "Codex failed";
+  if (deliveryStatus === "running") return "Codex is working";
+  if (deliveryStatus === "queued") return "Waiting for Codex";
   switch (triggerStatus) {
     case "queued":
       return "Queued";
@@ -172,7 +181,14 @@ function formatTimestamp(timestamp: string): string {
       }).format(date);
 }
 
-function TriggerPage({ trigger }: { trigger: ActiveTrigger }) {
+function TriggerPage({
+  trigger,
+  onDeleted,
+}: {
+  trigger: ActiveTrigger;
+  onDeleted: () => void;
+}) {
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const queryKey = ["trigger-page", trigger.id] as const;
   const { data, error, isLoading } = useQuery({
     queryKey,
@@ -196,6 +212,19 @@ function TriggerPage({ trigger }: { trigger: ActiveTrigger }) {
     mutationFn: (showInCodex: boolean) =>
       window.desktop.setCodexShowInCodex(trigger.id, showInCodex),
     onSuccess: (page) => queryClient.setQueryData(queryKey, page),
+  });
+  const codexOptionsMutation = useMutation({
+    mutationFn: (options: Parameters<typeof window.desktop.setCodexOptions>[1]) =>
+      window.desktop.setCodexOptions(trigger.id, options),
+    onSuccess: (page) => queryClient.setQueryData(queryKey, page),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: () => window.desktop.deleteTrigger(trigger.id),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey: ["active-triggers"] });
+      onDeleted();
+    },
   });
 
   if (isLoading) {
@@ -244,7 +273,13 @@ function TriggerPage({ trigger }: { trigger: ActiveTrigger }) {
           <span className="trigger-type-badge">
             {triggerKindLabel(data.trigger.kind)} Trigger
           </span>
-          <pre className="code-block"><code>{data.event.code}</code></pre>
+          <details className="code-disclosure">
+            <summary>
+              <span>View trigger code</span>
+              <ChevronDown aria-hidden="true" size={16} />
+            </summary>
+            <pre className="code-block"><code>{data.event.code}</code></pre>
+          </details>
         </div>
       </section>
 
@@ -257,26 +292,61 @@ function TriggerPage({ trigger }: { trigger: ActiveTrigger }) {
               <pre><code>{data.codex.prompt}</code></pre>
             </div>
 
-            <dl className="codex-options-grid">
+            <div className="codex-options-grid">
+              <label className="codex-option-field">
+                <span>Model</span>
+                <select
+                  aria-label="Codex model"
+                  value={data.codex.model}
+                  disabled={codexOptionsMutation.isPending}
+                  onChange={(event) =>
+                    codexOptionsMutation.mutate({
+                      model: event.target.value as CodexModel,
+                    })
+                  }
+                >
+                  <option value="luna">Luna</option>
+                  <option value="terra">Terra</option>
+                  <option value="sol">Sol</option>
+                </select>
+              </label>
+              <label className="codex-option-field">
+                <span>Reasoning</span>
+                <select
+                  aria-label="Codex reasoning"
+                  value={data.codex.reasoningEffort}
+                  disabled={codexOptionsMutation.isPending}
+                  onChange={(event) =>
+                    codexOptionsMutation.mutate({
+                      reasoningEffort: event.target.value as CodexReasoningEffort,
+                    })
+                  }
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="xhigh">Extra high</option>
+                </select>
+              </label>
               <div>
-                <dt>Model</dt>
-                <dd>{data.codex.model}</dd>
-              </div>
-              <div>
-                <dt>Reasoning</dt>
-                <dd>{data.codex.reasoningEffort}</dd>
-              </div>
-              <div>
-                <dt>Project / Working Directory</dt>
-                <dd>{data.codex.projectPath || "No project"}</dd>
+                <span>Project / Working Directory</span>
+                <p>{data.codex.projectPath || "No project"}</p>
               </div>
               {data.codex.threadId ? (
                 <div>
-                  <dt>Thread ID</dt>
-                  <dd>{data.codex.threadId}</dd>
+                  <span>Thread ID</span>
+                  <p>{data.codex.threadId}</p>
                 </div>
               ) : null}
-            </dl>
+            </div>
+
+            {codexOptionsMutation.error ? (
+              <p className="inline-action-error">
+                {codexOptionsMutation.error instanceof Error
+                  ? codexOptionsMutation.error.message
+                  : "Could not update Codex options"}
+              </p>
+            ) : null}
 
             <div className="codex-persistence-row">
               <div>
@@ -324,10 +394,14 @@ function TriggerPage({ trigger }: { trigger: ActiveTrigger }) {
                   <div className="recent-run-actions">
                     <span
                       className={`run-status run-status-${run.deliveryStatus ?? run.status}`}
+                      role="status"
+                      aria-live="polite"
                     >
                       {runStatusLabel(run.status, run.deliveryStatus)}
                     </span>
-                    {data.codex?.showInCodex && run.threadId ? (
+                    {data.codex?.showInCodex &&
+                    run.deliveryStatus === "succeeded" &&
+                    run.threadId ? (
                       <button
                         className="open-codex-button"
                         type="button"
@@ -344,6 +418,68 @@ function TriggerPage({ trigger }: { trigger: ActiveTrigger }) {
           )}
         </div>
       </section>
+
+      <section className="detail-section danger-section" aria-labelledby="danger-title">
+        <h2 id="danger-title">Danger Zone</h2>
+        <div className="detail-card danger-card">
+          <div>
+            <strong>Delete Trigger</strong>
+            <p>Remove this Trigger, its Delivery, and its history.</p>
+          </div>
+          <button
+            className="delete-trigger-button"
+            type="button"
+            onClick={() => setDeleteDialogOpen(true)}
+          >
+            <Trash2 aria-hidden="true" size={15} />
+            Delete
+          </button>
+        </div>
+      </section>
+
+      {deleteDialogOpen ? (
+        <div className="dialog-backdrop">
+          <div
+            className="confirmation-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-dialog-title"
+            aria-describedby="delete-dialog-description"
+          >
+            <h2 id="delete-dialog-title">Delete this Trigger?</h2>
+            <p id="delete-dialog-description">
+              This permanently deletes “{data.trigger.name}”, its Delivery, and
+              its execution history.
+            </p>
+            {deleteMutation.error ? (
+              <p className="dialog-error">
+                {deleteMutation.error instanceof Error
+                  ? deleteMutation.error.message
+                  : "Could not delete Trigger"}
+              </p>
+            ) : null}
+            <div className="dialog-actions">
+              <button
+                className="dialog-cancel-button"
+                type="button"
+                autoFocus
+                disabled={deleteMutation.isPending}
+                onClick={() => setDeleteDialogOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="dialog-delete-button"
+                type="button"
+                disabled={deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate()}
+              >
+                {deleteMutation.isPending ? "Deleting…" : "Delete Trigger"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -481,7 +617,15 @@ function App() {
       case "create":
         return <CreateTriggerPage />;
       case "trigger":
-        return selectedTrigger ? <TriggerPage trigger={selectedTrigger} /> : null;
+        return selectedTrigger ? (
+          <TriggerPage
+            trigger={selectedTrigger}
+            onDeleted={() => {
+              setSelectedTrigger(null);
+              setPage("home");
+            }}
+          />
+        ) : null;
       case "settings":
         return <SettingsPage />;
     }

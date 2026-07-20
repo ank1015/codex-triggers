@@ -245,6 +245,41 @@ button {
   font-weight: 500;
 }
 
+.code-disclosure {
+  margin-top: 16px;
+  border-top: 1px solid #202024;
+  padding-top: 14px;
+}
+
+.code-disclosure summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #a1a1aa;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.code-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.code-disclosure summary svg {
+  transition: transform 140ms ease;
+}
+
+.code-disclosure[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.code-disclosure summary:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 4px;
+}
+
 .code-block,
 .codex-prompt pre {
   overflow: auto;
@@ -288,17 +323,20 @@ button {
   margin: 22px 0 0;
 }
 
-.codex-options-grid div {
+.codex-options-grid div,
+.codex-option-field {
   min-width: 0;
 }
 
-.codex-options-grid dt {
+.codex-options-grid div > span,
+.codex-option-field > span {
+  display: block;
   margin-bottom: 6px;
   color: #77777f;
   font-size: 12px;
 }
 
-.codex-options-grid dd {
+.codex-options-grid div > p {
   overflow: hidden;
   margin: 0;
   color: #e4e4e7;
@@ -306,6 +344,38 @@ button {
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.codex-option-field select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid #303036;
+  border-radius: 8px;
+  padding: 0 34px 0 10px;
+  background: #111113;
+  color: #e4e4e7;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.codex-option-field select:hover {
+  border-color: #4a4a50;
+}
+
+.codex-option-field select:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.codex-option-field select:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.inline-action-error {
+  margin: 14px 0 0;
+  color: #f87171;
+  font-size: 12px;
 }
 
 .codex-persistence-row {
@@ -424,6 +494,29 @@ button {
   color: #facc66;
 }
 
+.run-status-running::before,
+.run-status-queued::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+  animation: run-status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes run-status-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
 .open-codex-button {
   display: inline-flex;
   align-items: center;
@@ -452,6 +545,133 @@ button {
   margin: 0;
   color: #f87171;
   font-size: 13px;
+}
+
+.danger-section {
+  padding-bottom: 24px;
+}
+
+.danger-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-color: #3a2023;
+  padding: 18px;
+}
+
+.danger-card strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.danger-card p {
+  margin: 5px 0 0;
+  color: #77777f;
+  font-size: 12px;
+}
+
+.delete-trigger-button,
+.dialog-delete-button {
+  border: 1px solid #7f1d1d;
+  border-radius: 8px;
+  background: #3b1115;
+  color: #fca5a5;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.delete-trigger-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+}
+
+.delete-trigger-button:hover,
+.dialog-delete-button:hover {
+  background: #52171c;
+  color: #fecaca;
+}
+
+.delete-trigger-button:focus-visible,
+.dialog-delete-button:focus-visible,
+.dialog-cancel-button:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.confirmation-dialog {
+  width: min(100%, 430px);
+  border: 1px solid #303036;
+  border-radius: 14px;
+  padding: 22px;
+  background: #0d0d0f;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+}
+
+.confirmation-dialog h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.confirmation-dialog > p {
+  margin: 10px 0 0;
+  color: #929299;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.confirmation-dialog .dialog-error {
+  color: #f87171;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 22px;
+}
+
+.dialog-cancel-button,
+.dialog-delete-button {
+  padding: 8px 12px;
+}
+
+.dialog-cancel-button {
+  border: 1px solid #34343a;
+  border-radius: 8px;
+  background: #171719;
+  color: #e4e4e7;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.dialog-cancel-button:hover {
+  border-color: #52525b;
+  background: #202024;
+}
+
+.dialog-cancel-button:disabled,
+.dialog-delete-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 @media (max-width: 620px) {
