@@ -1,0 +1,6 @@
+{
+  "name": "@codexmaxxing/landing",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Codex Triggers landing page — static site deployed to Vercel."
+}

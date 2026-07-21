@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codex Triggers — Let anything trigger Codex</title>
+    <meta
+      name="description"
+      content="Webhooks, schedules, watchers, even your iPhone — any event becomes a Codex task, automatically. A macOS app."
+    />
+    <link rel="icon" type="image/png" href="./logo.png" />
+    <link rel="stylesheet" href="./styles.css" />
+    <meta property="og:title" content="Codex Triggers" />
+    <meta
+      property="og:description"
+      content="Let anything trigger Codex. Webhooks, schedules, watchers, even your iPhone."
+    />
+    <meta property="og:image" content="./poster.png" />
+  </head>
+  <body>
+    <header class="site-header">
+      <span class="brand">
+        <span class="brand-badge"><img src="./logo.png" alt="" /></span>
+        Codex Triggers
+      </span>
+      <a
+        class="github-link"
+        href="https://github.com/ank1015/codex-triggers"
+        target="_blank"
+        rel="noreferrer"
+      >
+        GitHub
+      </a>
+    </header>
+
+    <main>
+      <section class="hero">
+        <h1>Let <em>anything</em> trigger Codex.</h1>
+        <p class="hero-sub">
+          Webhooks. Schedules. Watchers. Even your iPhone. Any event on your
+          Mac becomes a Codex task — automatically.
+        </p>
+        <div class="install-row">
+          <code class="install-command" id="install-command">
+            <span class="prompt-sign">$</span> npx codex-triggers@latest
+          </code>
+          <button class="copy-button" id="copy-button" type="button">
+            Copy
+          </button>
+        </div>
+        <p class="hero-note">macOS · requires the Codex app</p>
+      </section>
+
+      <section class="video-section">
+        <video
+          controls
+          playsinline
+          preload="metadata"
+          poster="./poster.png"
+          src="https://ank1015-portfolio-media-3e8fe1.s3.amazonaws.com/codex-triggers-launch.mp4"
+        ></video>
+      </section>
+
+      <section class="ideas-section">
+        <h2>Ideas</h2>
+        <p class="ideas-sub">
+          Create any of these by just asking Codex for it — or invent your own.
+        </p>
+        <div class="topic-chips" id="topic-chips" role="group" aria-label="Filter ideas by topic">
+          <button class="topic-chip" data-topic="system" type="button">System</button>
+          <button class="topic-chip" data-topic="developer" type="button">Developer</button>
+          <button class="topic-chip" data-topic="productivity" type="button">Productivity</button>
+          <button class="topic-chip" data-topic="monitoring" type="button">Monitoring</button>
+          <button class="topic-chip" data-topic="personal" type="button">Personal</button>
+          <button class="topic-chip" data-topic="iphone" type="button">iPhone</button>
+          <button class="topic-chip" data-topic="wild" type="button">Wild</button>
+        </div>
+        <div class="idea-grid" id="idea-grid"></div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Codex Triggers</span>
+      <a
+        href="https://github.com/ank1015/codex-triggers"
+        target="_blank"
+        rel="noreferrer"
+      >
+        github.com/ank1015/codex-triggers
+      </a>
+    </footer>
+
+    <script>
+      const IDEAS = [
+        {
+          title: "Screenshot organizer",
+          description:
+            "New screenshots get meaningful names and are filed into category folders automatically.",
+          tags: ["system"],
+        },
+        {
+          title: "PR review sidekick",
+          description:
+            "Every new pull request gets a local, runnable code review from Codex.",
+          tags: ["developer"],
+        },
+        {
+          title: "Morning briefing",
+          description:
+            "Calendar, weather, tasks, and urgent email in one digest at your desk.",
+          tags: ["productivity"],
+        },
+        {
+          title: "Tell my Mac to…",
+          description:
+            "Dictate anything to Siri; the agent does it on your Mac and texts back.",
+          tags: ["iphone", "wild"],
+        },
+        {
+          title: "Competitor watch",
+          description:
+            "Competitor sites and socials checked daily and distilled into a brief.",
+          tags: ["monitoring"],
+        },
+        {
+          title: "Price drop sniper",
+          description:
+            "Product pages are polled and real price drops verified before you buy.",
+          tags: ["monitoring", "personal"],
+        },
+        {
+          title: "Receipt snap",
+          description:
+            "Photograph receipts; vendor, amount, and date flow into your ledger.",
+          tags: ["iphone", "personal"],
+        },
+        {
+          title: "arXiv paper scout",
+          description:
+            "Daily arXiv sweeps filtered down to the papers actually worth reading.",
+          tags: ["monitoring"],
+        },
+        {
+          title: "Overnight prototyper",
+          description:
+            "Codex picks one idea from your ideas folder and builds a spike overnight.",
+          tags: ["developer", "wild"],
+        },
+        {
+          title: "Nightly WIP guardian",
+          description:
+            "Uncommitted work is summarized and saved to safety branches every night.",
+          tags: ["developer", "system"],
+        },
+        {
+          title: "Arriving-home briefing",
+          description:
+            "A “while you were out” digest is ready as you walk in the door.",
+          tags: ["iphone", "personal"],
+        },
+        {
+          title: "Low disk space triage",
+          description:
+            "When space runs low, an agent finds what grew and what is safe to delete.",
+          tags: ["system"],
+        },
+      ];
+
+      const TOPIC_LABELS = {
+        system: "System",
+        developer: "Developer",
+        productivity: "Productivity",
+        monitoring: "Monitoring",
+        personal: "Personal",
+        iphone: "iPhone",
+        wild: "Wild",
+      };
+
+      const grid = document.getElementById("idea-grid");
+      const selected = new Set();
+
+      const render = () => {
+        const visible =
+          selected.size === 0
+            ? IDEAS
+            : IDEAS.filter((idea) =>
+                idea.tags.some((tag) => selected.has(tag)),
+              );
+        grid.innerHTML = visible
+          .map(
+            (idea) => `
+              <article class="idea-card">
+                <h3>${idea.title}</h3>
+                <p>${idea.description}</p>
+                <div class="idea-tags">
+                  ${idea.tags
+                    .map((tag) => `<span>${TOPIC_LABELS[tag]}</span>`)
+                    .join("")}
+                </div>
+              </article>`,
+          )
+          .join("");
+      };
+
+      document.querySelectorAll(".topic-chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          const topic = chip.dataset.topic;
+          if (selected.has(topic)) {
+            selected.delete(topic);
+            chip.classList.remove("topic-chip-active");
+          } else {
+            selected.add(topic);
+            chip.classList.add("topic-chip-active");
+          }
+          render();
+        });
+      });
+
+      render();
+
+      const copyButton = document.getElementById("copy-button");
+      copyButton.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText("npx codex-triggers@latest");
+          copyButton.textContent = "Copied";
+          setTimeout(() => (copyButton.textContent = "Copy"), 1600);
+        } catch {
+          copyButton.textContent = "Copy";
+        }
+      });
+    </script>
+  </body>
+</html>
