@@ -176,6 +176,29 @@ async function getOnboardingStatus(): Promise<{ completed: boolean }> {
   }
 }
 
+async function syncBundledSkillAfterUpdate(): Promise<void> {
+  if (!(await getOnboardingStatus()).completed) return;
+  const installed = await installBundledSkill();
+  if (installed.skill === "current") return;
+
+  const markerPath = onboardingMarkerPath();
+  const marker = JSON.parse(await readFile(markerPath, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  const temporary = `${markerPath}.tmp-${process.pid}`;
+  await writeFile(
+    temporary,
+    `${JSON.stringify({
+      ...marker,
+      skillHash: installed.hash,
+      skillUpdatedAt: new Date().toISOString(),
+    }, null, 2)}\n`,
+    "utf8",
+  );
+  await rename(temporary, markerPath);
+}
+
 async function completeOnboarding(): Promise<{
   completed: true;
   skill: "installed" | "updated" | "current";
@@ -1831,6 +1854,9 @@ async function startDesktop(): Promise<void> {
     app.quit();
     return;
   }
+  await syncBundledSkillAfterUpdate().catch((error: unknown) => {
+    console.error("Codex Triggers skill could not be refreshed", error);
+  });
   window = createWindow();
 }
 
