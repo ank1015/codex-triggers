@@ -45,6 +45,7 @@ Request:
     "name": "New pull request",
     "kind": "webhook",
     "enabled": true,
+    "macosNotificationsEnabled": true,
     "code": "export default async function run(request) { const body = await request.json(); return { message: `PR opened: ${body.title}`, data: { title: body.title, url: body.html_url } } }",
     "outputSchema": {
       "type": "object",
@@ -124,6 +125,7 @@ type TriggerInput = {
   name: string
   kind: "webhook" | "schedule" | "service"
   enabled?: boolean
+  macosNotificationsEnabled?: boolean
   code: string
   outputSchema?: JSONSchema
   timeoutMs?: number
@@ -136,6 +138,9 @@ type TriggerInput = {
 ```
 
 - `schedule` is required only for `schedule` Triggers.
+- `macosNotificationsEnabled` defaults to `true`. When enabled, Codex Triggers
+  shows a native notification for each emitted Trigger notification; clicking
+  it opens that Trigger's detail page.
 - Cron expressions use the supplied IANA timezone.
 - A one-time expression is an ISO-8601 timestamp.
 - Webhook and schedule timeout defaults to `30000` and accepts `100..300000`.
