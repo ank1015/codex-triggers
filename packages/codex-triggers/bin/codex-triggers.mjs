@@ -24,7 +24,7 @@ const packageJson = JSON.parse(
   await readFile(join(packageRoot, "package.json"), "utf8"),
 );
 const version = packageJson.version;
-const repository = "ank1015/codex-trig";
+const repository = "ank1015/codex-triggers";
 const appName = "Codex Triggers.app";
 
 function log(message) {

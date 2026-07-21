@@ -26,9 +26,9 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ank1015/codex-trig.git"
+    "url": "git+https://github.com/ank1015/codex-triggers.git"
   },
-  "homepage": "https://github.com/ank1015/codex-trig",
-  "bugs": "https://github.com/ank1015/codex-trig/issues",
+  "homepage": "https://github.com/ank1015/codex-triggers",
+  "bugs": "https://github.com/ank1015/codex-triggers/issues",
   "license": "UNLICENSED"
 }
