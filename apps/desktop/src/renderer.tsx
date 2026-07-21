@@ -13,13 +13,14 @@ import {
   Plus,
   Settings,
   Trash2,
+  X,
 } from "lucide-react";
 
 import type {
-  ActiveTrigger,
   CodexModel,
   CodexReasoningEffort,
   DeliveryRunStatus,
+  TriggerSummary,
   TriggerPageData,
   TriggerRunStatus,
   WebhookTunnelSettings,
@@ -49,7 +50,7 @@ function Header({
           <ArrowLeft aria-hidden="true" size={22} strokeWidth={1.8} />
         </button>
       ) : (
-        <img className="app-logo" src="./logo.jpg" alt="Codex Triggers" />
+        <img className="app-logo" src="./logo-2.png" alt="Codex Triggers" />
       )}
       {onSettings ? (
         <button
@@ -58,7 +59,7 @@ function Header({
           aria-label="Settings"
           onClick={onSettings}
         >
-          <Settings aria-hidden="true" size={21} strokeWidth={1.8} />
+          <Settings aria-hidden="true" size={18} strokeWidth={1.8} />
         </button>
       ) : (
         <span className="header-action-spacer" aria-hidden="true" />
@@ -67,7 +68,7 @@ function Header({
   );
 }
 
-function triggerKindLabel(kind: ActiveTrigger["kind"]): string {
+function triggerKindLabel(kind: TriggerSummary["kind"]): string {
   switch (kind) {
     case "webhook":
       return "Webhook";
@@ -82,19 +83,22 @@ function TriggerCard({
   trigger,
   onOpen,
 }: {
-  trigger: ActiveTrigger;
-  onOpen: (trigger: ActiveTrigger) => void;
+  trigger: TriggerSummary;
+  onOpen: (trigger: TriggerSummary) => void;
 }) {
   return (
     <button
-      className="trigger-card"
+      className={`trigger-card${trigger.enabled ? "" : " trigger-card-inactive"}`}
       type="button"
       aria-label={`Open ${trigger.name}`}
       onClick={() => onOpen(trigger)}
     >
       <div className="trigger-card-meta">
-        <span className="active-indicator" aria-hidden="true" />
-        <span>Active</span>
+        <span
+          className={`trigger-status-indicator${trigger.enabled ? "" : " trigger-status-indicator-inactive"}`}
+          aria-hidden="true"
+        />
+        <span>{trigger.enabled ? "Active" : "Inactive"}</span>
       </div>
       <h2>{trigger.name}</h2>
       <p>{triggerKindLabel(trigger.kind)} Trigger</p>
@@ -102,31 +106,31 @@ function TriggerCard({
   );
 }
 
-function ActiveTriggers({
+function Triggers({
   onCreate,
   onOpenTrigger,
 }: {
   onCreate: () => void;
-  onOpenTrigger: (trigger: ActiveTrigger) => void;
+  onOpenTrigger: (trigger: TriggerSummary) => void;
 }) {
   const {
     data: triggers = [],
     error,
   } = useQuery({
-    queryKey: ["active-triggers"],
-    queryFn: () => window.desktop.listActiveTriggers(),
+    queryKey: ["triggers"],
+    queryFn: () => window.desktop.listTriggers(),
     refetchInterval: 1_000,
     refetchIntervalInBackground: true,
   });
 
   useEffect(() => {
-    if (error) console.error("Could not load active Triggers", error);
+    if (error) console.error("Could not load Triggers", error);
   }, [error]);
 
   return (
     <main className="main-content">
-      <h1 className="active-triggers-title">Active Triggers</h1>
-      <section className="trigger-grid" aria-label="Active Triggers">
+      <h1 className="triggers-title">Triggers</h1>
+      <section className="trigger-grid" aria-label="Triggers">
         {triggers.map((trigger) => (
           <TriggerCard
             key={trigger.id}
@@ -185,7 +189,7 @@ function TriggerPage({
   trigger,
   onDeleted,
 }: {
-  trigger: ActiveTrigger;
+  trigger: TriggerSummary;
   onDeleted: () => void;
 }) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -205,7 +209,7 @@ function TriggerPage({
       window.desktop.setTriggerEnabled(trigger.id, enabled),
     onSuccess: (page) => {
       queryClient.setQueryData(queryKey, page);
-      void queryClient.invalidateQueries({ queryKey: ["active-triggers"] });
+      void queryClient.invalidateQueries({ queryKey: ["triggers"] });
     },
   });
   const showInCodexMutation = useMutation({
@@ -222,7 +226,7 @@ function TriggerPage({
     mutationFn: () => window.desktop.deleteTrigger(trigger.id),
     onSuccess: () => {
       queryClient.removeQueries({ queryKey });
-      void queryClient.invalidateQueries({ queryKey: ["active-triggers"] });
+      void queryClient.invalidateQueries({ queryKey: ["triggers"] });
       onDeleted();
     },
   });
@@ -288,7 +292,7 @@ function TriggerPage({
         {data.codex ? (
           <div className="detail-card codex-options-card">
             <div className="codex-prompt">
-              <span className="detail-label">System Prompt</span>
+              <span className="detail-label">Template prompt</span>
               <pre><code>{data.codex.prompt}</code></pre>
             </div>
 
@@ -502,7 +506,7 @@ function CreateTriggerPage() {
         </button>
       </section>
 
-      <h2 className="pre-made-title">Pre-Made Triggers</h2>
+      <h2 className="pre-made-title">Ideas</h2>
     </main>
   );
 }
@@ -580,16 +584,100 @@ function SettingsPage() {
   );
 }
 
+function FunnelReminderBanner({
+  onClose,
+  onOpenSettings,
+}: {
+  onClose: () => void;
+  onOpenSettings: () => void;
+}) {
+  return (
+    <aside className="funnel-banner" role="status">
+      <button
+        className="funnel-banner-content"
+        type="button"
+        onClick={onOpenSettings}
+      >
+        Turn on Tailscale funneling for external webhook events
+      </button>
+      <button
+        className="funnel-banner-close"
+        type="button"
+        aria-label="Dismiss"
+        onClick={onClose}
+      >
+        <X aria-hidden="true" size={14} strokeWidth={2} />
+      </button>
+    </aside>
+  );
+}
+
+function OnboardingPage({
+  onComplete,
+  pending,
+  error,
+  onDismissError,
+}: {
+  onComplete: () => void;
+  pending: boolean;
+  error: string | null;
+  onDismissError: () => void;
+}) {
+  return (
+    <div className="onboarding-page">
+      <main className="onboarding-content">
+        <h1>Codex Triggers</h1>
+        <button
+          className="onboarding-start-button"
+          type="button"
+          disabled={pending}
+          onClick={onComplete}
+        >
+          {pending ? "Setting up…" : "Let's Start"}
+        </button>
+      </main>
+      {error ? (
+        <aside className="onboarding-error-toast" role="alert">
+          <p>{error}</p>
+          <button
+            type="button"
+            aria-label="Dismiss error"
+            onClick={onDismissError}
+          >
+            <X aria-hidden="true" size={14} strokeWidth={2} />
+          </button>
+        </aside>
+      ) : null}
+    </div>
+  );
+}
+
 type Page = "home" | "create" | "trigger" | "settings";
 
-function App() {
+function MainApplication() {
   const [page, setPage] = useState<Page>("home");
-  const [selectedTrigger, setSelectedTrigger] = useState<ActiveTrigger | null>(
+  const [selectedTrigger, setSelectedTrigger] = useState<TriggerSummary | null>(
     null,
   );
   const [settingsReturnPage, setSettingsReturnPage] = useState<
     Exclude<Page, "settings">
   >("home");
+  const [funnelBannerVisible, setFunnelBannerVisible] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.desktop
+      .getWebhookTunnelSettings()
+      .then((settings) => {
+        if (!cancelled && !settings.enabled) setFunnelBannerVisible(true);
+      })
+      .catch(() => {
+        // If Tailscale status can't be read, skip the reminder.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const openSettings = () => {
     if (page !== "settings") setSettingsReturnPage(page);
@@ -600,7 +688,7 @@ function App() {
     setPage(page === "settings" ? settingsReturnPage : "home");
   };
 
-  const openTrigger = (trigger: ActiveTrigger) => {
+  const openTrigger = (trigger: TriggerSummary) => {
     setSelectedTrigger(trigger);
     setPage("trigger");
   };
@@ -609,7 +697,7 @@ function App() {
     switch (page) {
       case "home":
         return (
-          <ActiveTriggers
+          <Triggers
             onCreate={() => setPage("create")}
             onOpenTrigger={openTrigger}
           />
@@ -638,8 +726,61 @@ function App() {
         onSettings={page === "settings" ? undefined : openSettings}
       />
       {pageContent}
+      {page === "home" && funnelBannerVisible ? (
+        <FunnelReminderBanner
+          onClose={() => setFunnelBannerVisible(false)}
+          onOpenSettings={() => {
+            setFunnelBannerVisible(false);
+            openSettings();
+          }}
+        />
+      ) : null}
     </div>
   );
+}
+
+function App() {
+  const [errorDismissed, setErrorDismissed] = useState(false);
+  const onboarding = useQuery({
+    queryKey: ["onboarding"],
+    queryFn: () => window.desktop.getOnboardingStatus(),
+    staleTime: Infinity,
+    retry: false,
+  });
+  const completeOnboardingMutation = useMutation({
+    mutationFn: async () => {
+      const result = await window.desktop.completeOnboarding();
+      if (!result.completed) throw new Error(result.error);
+      return result;
+    },
+    onMutate: () => setErrorDismissed(false),
+    onSuccess: () => {
+      queryClient.setQueryData(["onboarding"], { completed: true });
+    },
+  });
+
+  if (onboarding.isLoading) {
+    return <div className="app-shell" />;
+  }
+  if (!onboarding.data?.completed) {
+    const rawError = completeOnboardingMutation.error ?? onboarding.error;
+    const error =
+      !errorDismissed && rawError
+        ? rawError instanceof Error
+          ? rawError.message
+          : "Codex Triggers setup could not be completed."
+        : null;
+    return (
+      <OnboardingPage
+        pending={completeOnboardingMutation.isPending}
+        error={error}
+        onDismissError={() => setErrorDismissed(true)}
+        onComplete={() => completeOnboardingMutation.mutate()}
+      />
+    );
+  }
+
+  return <MainApplication />;
 }
 
 const rootElement = document.querySelector("#root");

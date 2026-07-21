@@ -6,10 +6,11 @@ export type DesktopStatus = {
   deliveryServices: string[];
 };
 
-export type ActiveTrigger = {
+export type TriggerSummary = {
   id: string;
   name: string;
   kind: "webhook" | "schedule" | "service";
+  enabled: boolean;
 };
 
 export type TriggerRunStatus =
@@ -25,8 +26,7 @@ export type CodexModel = "luna" | "terra" | "sol";
 export type CodexReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 export type TriggerPageData = {
-  trigger: ActiveTrigger & {
-    enabled: boolean;
+  trigger: TriggerSummary & {
     createdAt: string;
     updatedAt: string;
   };
@@ -76,9 +76,25 @@ export type WebhookTunnelSettings = {
   error: string | null;
 };
 
+export type OnboardingStatus = {
+  completed: boolean;
+};
+
+export type OnboardingResult =
+  | {
+      completed: true;
+      skill: "installed" | "updated" | "current";
+    }
+  | {
+      completed: false;
+      error: string;
+    };
+
 export type DesktopApi = {
+  getOnboardingStatus(): Promise<OnboardingStatus>;
+  completeOnboarding(): Promise<OnboardingResult>;
   getStatus(): Promise<DesktopStatus>;
-  listActiveTriggers(): Promise<ActiveTrigger[]>;
+  listTriggers(): Promise<TriggerSummary[]>;
   getTriggerPage(triggerId: string): Promise<TriggerPageData | null>;
   setTriggerEnabled(triggerId: string, enabled: boolean): Promise<TriggerPageData>;
   setCodexShowInCodex(

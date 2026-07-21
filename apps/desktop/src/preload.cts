@@ -3,9 +3,12 @@ import type { DesktopApi } from "./shared.js";
 const { contextBridge, ipcRenderer } = require("electron") as typeof import("electron");
 
 const api: DesktopApi = {
+  getOnboardingStatus: async () =>
+    await ipcRenderer.invoke("desktop:get-onboarding-status"),
+  completeOnboarding: async () =>
+    await ipcRenderer.invoke("desktop:complete-onboarding"),
   getStatus: async () => await ipcRenderer.invoke("desktop:get-status"),
-  listActiveTriggers: async () =>
-    await ipcRenderer.invoke("desktop:list-active-triggers"),
+  listTriggers: async () => await ipcRenderer.invoke("desktop:list-triggers"),
   getTriggerPage: async (triggerId) =>
     await ipcRenderer.invoke("desktop:get-trigger-page", triggerId),
   setTriggerEnabled: async (triggerId, enabled) =>

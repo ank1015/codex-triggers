@@ -1,10 +1,22 @@
 import { execFile } from "node:child_process";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  access,
+  cp,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import {
+  findCodexAppServerExecutable,
   loadConfig,
   TriggerServer,
   type WebhookTunnel,
@@ -13,18 +25,18 @@ import {
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 
 import type {
-  ActiveTrigger,
   CodexModel,
   CodexReasoningEffort,
   DesktopStatus,
+  TriggerSummary,
   TriggerPageData,
 } from "./shared.js";
 
 const directory = fileURLToPath(new URL(".", import.meta.url));
 const smokeTest = process.env.TRIGGER_DESKTOP_SMOKE_TEST === "1";
 const execFileAsync = promisify(execFile);
-const CODEX_TRIGGER_PROMPT =
-  "[$manage-codex-triggers](/Users/notacoder/.codex/skills/manage-codex-triggers/SKILL.md) Create a trigger for";
+const SKILL_NAME = "manage-codex-triggers";
+const ONBOARDING_VERSION = 1;
 
 if (smokeTest) {
   app.setPath("userData", join(tmpdir(), `codex-triggers-smoke-${process.pid}`));
@@ -35,7 +47,142 @@ let triggerServer: TriggerServer | null = null;
 let shutdownComplete = false;
 let exitCode = 0;
 let lastOpenedExternalUrl: string | null = null;
+let smokeCodexAvailable = false;
 const windowLoads = new WeakMap<BrowserWindow, Promise<void>>();
+
+function onboardingMarkerPath(): string {
+  return join(app.getPath("userData"), "onboarding.json");
+}
+
+function bundledSkillPath(): string {
+  return join(directory, "skills", SKILL_NAME);
+}
+
+function installedSkillPath(): string {
+  return smokeTest
+    ? join(app.getPath("userData"), ".codex", "skills", SKILL_NAME)
+    : join(
+        process.env.CODEX_HOME?.trim() || join(homedir(), ".codex"),
+        "skills",
+        SKILL_NAME,
+      );
+}
+
+function codexTriggerPrompt(): string {
+  return `[$${SKILL_NAME}](${join(installedSkillPath(), "SKILL.md")}) Create a trigger for`;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function hashDirectory(root: string): Promise<string> {
+  const hash = createHash("sha256");
+  const visit = async (directoryPath: string): Promise<void> => {
+    const entries = await readdir(directoryPath, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const path = join(directoryPath, entry.name);
+      const name = relative(root, path);
+      if (entry.isDirectory()) {
+        hash.update(`directory:${name}\0`);
+        await visit(path);
+      } else if (entry.isFile()) {
+        hash.update(`file:${name}\0`);
+        hash.update(await readFile(path));
+      }
+    }
+  };
+  await visit(root);
+  return hash.digest("hex");
+}
+
+async function installBundledSkill(): Promise<{
+  skill: "installed" | "updated" | "current";
+  hash: string;
+}> {
+  const source = bundledSkillPath();
+  const destination = installedSkillPath();
+  if (!(await pathExists(join(source, "SKILL.md")))) {
+    throw new Error("The bundled Codex Triggers skill could not be found.");
+  }
+  const sourceHash = await hashDirectory(source);
+  const destinationExists = await pathExists(destination);
+  if (
+    destinationExists &&
+    (await hashDirectory(destination).catch(() => null)) === sourceHash
+  ) {
+    return { skill: "current", hash: sourceHash };
+  }
+
+  const parent = dirname(destination);
+  const temporary = join(parent, `.${SKILL_NAME}-${randomUUID()}`);
+  await mkdir(parent, { recursive: true });
+  try {
+    await cp(source, temporary, { recursive: true, force: true });
+    await rm(destination, { recursive: true, force: true });
+    await rename(temporary, destination);
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+  return {
+    skill: destinationExists ? "updated" : "installed",
+    hash: sourceHash,
+  };
+}
+
+async function getOnboardingStatus(): Promise<{ completed: boolean }> {
+  try {
+    const marker = JSON.parse(
+      await readFile(onboardingMarkerPath(), "utf8"),
+    ) as { version?: unknown; completed?: unknown };
+    return {
+      completed:
+        marker.version === ONBOARDING_VERSION && marker.completed === true,
+    };
+  } catch {
+    return { completed: false };
+  }
+}
+
+async function completeOnboarding(): Promise<{
+  completed: true;
+  skill: "installed" | "updated" | "current";
+}> {
+  const codexExecutable = smokeTest
+    ? smokeCodexAvailable
+      ? process.execPath
+      : null
+    : await findCodexAppServerExecutable();
+  if (!codexExecutable) {
+    throw new Error(
+      "Codex app-server is not available. Install or update the Codex app, then try again.",
+    );
+  }
+
+  const installed = await installBundledSkill();
+  const marker = onboardingMarkerPath();
+  const temporary = `${marker}.tmp-${process.pid}`;
+  await mkdir(dirname(marker), { recursive: true });
+  await writeFile(
+    temporary,
+    `${JSON.stringify({
+      version: ONBOARDING_VERSION,
+      completed: true,
+      completedAt: new Date().toISOString(),
+      skillHash: installed.hash,
+      codexExecutable,
+    }, null, 2)}\n`,
+    "utf8",
+  );
+  await rename(temporary, marker);
+  return { completed: true, skill: installed.skill };
+}
 
 function createWindow(show = true): BrowserWindow {
   const created = new BrowserWindow({
@@ -45,7 +192,7 @@ function createWindow(show = true): BrowserWindow {
     minWidth: 640,
     minHeight: 480,
     title: "Codex Triggers",
-    backgroundColor: "#000000",
+    backgroundColor: "#0f0f11",
     webPreferences: {
       preload: join(directory, "preload.cjs"),
       contextIsolation: true,
@@ -93,11 +240,10 @@ function currentStatus(server: TriggerServer): DesktopStatus {
   };
 }
 
-function listActiveTriggers(server: TriggerServer): ActiveTrigger[] {
+function listTriggers(server: TriggerServer): TriggerSummary[] {
   return server.system.database
     .listTriggers()
-    .filter(({ enabled }) => enabled)
-    .map(({ id, name, kind }) => ({ id, name, kind }));
+    .map(({ id, name, kind, enabled }) => ({ id, name, kind, enabled }));
 }
 
 function stringProperty(
@@ -380,7 +526,7 @@ function createSmokeWebhookTunnel(): WebhookTunnel {
 
 async function openCodexNewChat(): Promise<void> {
   const url = `codex://threads/new?prompt=${encodeURIComponent(
-    CODEX_TRIGGER_PROMPT,
+    codexTriggerPrompt(),
   )}`;
   lastOpenedExternalUrl = url;
   if (!smokeTest) await shell.openExternal(url);
@@ -492,13 +638,102 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
   );
   window = createWindow(false);
   await windowLoads.get(window);
+  const onboardingFailure = (await window.webContents.executeJavaScript(
+    `(async () => {
+      const deadline = Date.now() + 2_000;
+      while (!document.querySelector(".onboarding-start-button") && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      const initial = {
+        title: document.querySelector(".onboarding-content h1")?.textContent,
+        action: document.querySelector(".onboarding-start-button")?.textContent,
+        headerVisible: Boolean(document.querySelector(".app-header")),
+      };
+      document.querySelector(".onboarding-start-button")?.click();
+      while (!document.querySelector(".onboarding-error-toast") && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      return {
+        ...initial,
+        error: document.querySelector(".onboarding-error-toast p")?.textContent,
+      };
+    })()`,
+  )) as {
+    title?: string;
+    action?: string;
+    headerVisible?: boolean;
+    error?: string;
+  };
+  if (
+    onboardingFailure.title !== "Codex Triggers" ||
+    onboardingFailure.action !== "Let's Start" ||
+    onboardingFailure.headerVisible !== false ||
+    onboardingFailure.error !==
+      "Codex app-server is not available. Install or update the Codex app, then try again."
+  ) {
+    throw new Error(
+      `Desktop UI onboarding failure state was unexpected: ${JSON.stringify(onboardingFailure)}`,
+    );
+  }
+
+  smokeCodexAvailable = true;
+  const onboardingSuccess = (await window.webContents.executeJavaScript(
+    `(async () => {
+      document.querySelector(".onboarding-start-button")?.click();
+      const deadline = Date.now() + 4_000;
+      while (!document.querySelector(".triggers-title") && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      return {
+        title: document.querySelector(".triggers-title")?.textContent,
+        onboardingVisible: Boolean(document.querySelector(".onboarding-page")),
+      };
+    })()`,
+  )) as { title?: string; onboardingVisible?: boolean };
+  if (
+    onboardingSuccess.title !== "Triggers" ||
+    onboardingSuccess.onboardingVisible !== false ||
+    !(await getOnboardingStatus()).completed ||
+    !(await pathExists(join(installedSkillPath(), "SKILL.md")))
+  ) {
+    throw new Error(
+      `Desktop UI onboarding did not complete: ${JSON.stringify(onboardingSuccess)}`,
+    );
+  }
+
+  const reloaded = new Promise<void>((resolvePromise) => {
+    window!.webContents.once("did-finish-load", () => resolvePromise());
+  });
+  window.webContents.reload();
+  await reloaded;
+  const persistedOnboarding = (await window.webContents.executeJavaScript(
+    `(async () => {
+      const deadline = Date.now() + 2_000;
+      while (!document.querySelector(".triggers-title") && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      return {
+        title: document.querySelector(".triggers-title")?.textContent,
+        onboardingVisible: Boolean(document.querySelector(".onboarding-page")),
+      };
+    })()`,
+  )) as { title?: string; onboardingVisible?: boolean };
+  if (
+    persistedOnboarding.title !== "Triggers" ||
+    persistedOnboarding.onboardingVisible !== false
+  ) {
+    throw new Error(
+      `Desktop UI onboarding was not persisted: ${JSON.stringify(persistedOnboarding)}`,
+    );
+  }
+
   const renderedHeader = (await window.webContents.executeJavaScript(
     `(async () => {
       await new Promise(resolve => setTimeout(resolve, 30));
       return {
         logo: document.querySelector(".app-logo")?.getAttribute("src"),
         settingsLabel: document.querySelector(".settings-button")?.getAttribute("aria-label"),
-        sectionTitle: document.querySelector(".active-triggers-title")?.textContent,
+        sectionTitle: document.querySelector(".triggers-title")?.textContent,
         triggerName: document.querySelector(".trigger-card h2")?.textContent,
         triggerLabel: document.querySelector(".trigger-card")?.getAttribute("aria-label"),
         addLabel: document.querySelector(".add-trigger-card")?.getAttribute("aria-label"),
@@ -513,9 +748,9 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
     addLabel?: string;
   };
   if (
-    renderedHeader.logo !== "./logo.jpg" ||
+    renderedHeader.logo !== "./logo-2.png" ||
     renderedHeader.settingsLabel !== "Settings" ||
-    renderedHeader.sectionTitle !== "Active Triggers" ||
+    renderedHeader.sectionTitle !== "Triggers" ||
     renderedHeader.triggerName !== "Smoke Trigger" ||
     renderedHeader.triggerLabel !== "Open Smoke Trigger" ||
     renderedHeader.addLabel !== "Create a Trigger"
@@ -677,8 +912,6 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
       const triggerToggle = document.querySelector('[aria-label="Trigger enabled"]');
       triggerToggle?.click();
       const disabled = await waitChecked(triggerToggle, "false");
-      triggerToggle?.click();
-      const reenabled = await waitChecked(triggerToggle, "true");
 
       const codexToggle = document.querySelector('[aria-label="Show in Codex"]');
       codexToggle?.click();
@@ -687,7 +920,6 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
       const reshown = await waitChecked(codexToggle, "true");
       return {
         disabled,
-        reenabled,
         hidden,
         reshown,
       };
@@ -695,7 +927,6 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
   )) as Record<string, string | undefined>;
   if (
     toggles.disabled !== "false" ||
-    toggles.reenabled !== "true" ||
     toggles.hidden !== "false" ||
     toggles.reshown !== "true"
   ) {
@@ -713,16 +944,74 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
     );
   }
 
-  const triggerPageReturnedTitle = await window.webContents.executeJavaScript(
+  const inactiveTriggerOnHome = (await window.webContents.executeJavaScript(
     `(async () => {
       document.querySelector(".header-icon-button")?.click();
-      await new Promise(resolve => setTimeout(resolve, 30));
-      return document.querySelector(".active-triggers-title")?.textContent;
+      const deadline = Date.now() + 2_000;
+      let card;
+      while (!card && Date.now() < deadline) {
+        card = document.querySelector('[aria-label="Open Smoke Trigger"]');
+        if (!card) await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      return {
+        title: document.querySelector(".triggers-title")?.textContent,
+        cardPresent: Boolean(card),
+        status: card?.querySelector(".trigger-card-meta span:last-child")?.textContent,
+        inactiveClass: card?.classList.contains("trigger-card-inactive"),
+      };
     })()`,
-  );
-  if (triggerPageReturnedTitle !== "Active Triggers") {
+  )) as {
+    title?: string;
+    cardPresent?: boolean;
+    status?: string;
+    inactiveClass?: boolean;
+  };
+  if (
+    inactiveTriggerOnHome.title !== "Triggers" ||
+    inactiveTriggerOnHome.cardPresent !== true ||
+    inactiveTriggerOnHome.status !== "Inactive" ||
+    inactiveTriggerOnHome.inactiveClass !== true
+  ) {
     throw new Error(
-      `Desktop UI Trigger back navigation failed: ${triggerPageReturnedTitle}`,
+      `Desktop UI hid or misrepresented an inactive Trigger: ${JSON.stringify(inactiveTriggerOnHome)}`,
+    );
+  }
+
+  const reenabledTrigger = (await window.webContents.executeJavaScript(
+    `(async () => {
+      document.querySelector('[aria-label="Open Smoke Trigger"]')?.click();
+      const deadline = Date.now() + 2_000;
+      while (!document.querySelector('[aria-label="Trigger enabled"]') && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      const toggle = document.querySelector('[aria-label="Trigger enabled"]');
+      toggle?.click();
+      while (toggle?.getAttribute("aria-checked") !== "true" && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      const enabled = toggle?.getAttribute("aria-checked");
+      document.querySelector(".header-icon-button")?.click();
+      while (!document.querySelector(".triggers-title") && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      let status;
+      while (Date.now() < deadline) {
+        status = document.querySelector('[aria-label="Open Smoke Trigger"] .trigger-card-meta span:last-child')?.textContent;
+        if (status === "Active") break;
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      return {
+        enabled,
+        status,
+      };
+    })()`,
+  )) as { enabled?: string; status?: string };
+  if (
+    reenabledTrigger.enabled !== "true" ||
+    reenabledTrigger.status !== "Active"
+  ) {
+    throw new Error(
+      `Desktop UI could not restore an inactive Trigger: ${JSON.stringify(reenabledTrigger)}`,
     );
   }
 
@@ -857,13 +1146,13 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
       await new Promise(resolve => setTimeout(resolve, 0));
       document.querySelector(".dialog-delete-button")?.click();
       const deadline = Date.now() + 4_000;
-      while (!document.querySelector(".active-triggers-title") && Date.now() < deadline) {
+      while (!document.querySelector(".triggers-title") && Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 20));
       }
       return {
         dialogTitle,
         cancelled,
-        returnedTitle: document.querySelector(".active-triggers-title")?.textContent,
+        returnedTitle: document.querySelector(".triggers-title")?.textContent,
         deletedCard: Boolean(document.querySelector('[aria-label="Open Silent Listener"]')),
       };
     })()`,
@@ -876,7 +1165,7 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
   if (
     deletion.dialogTitle !== "Delete this Trigger?" ||
     deletion.cancelled !== true ||
-    deletion.returnedTitle !== "Active Triggers" ||
+    deletion.returnedTitle !== "Triggers" ||
     deletion.deletedCard !== false ||
     server.system.database.getTrigger(listenerTrigger.details.trigger.id) !== null
   ) {
@@ -910,7 +1199,7 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
     createPage.message !==
       "Create ANY trigger by just asking Codex for it using the official skill" ||
     createPage.action !== "Ask Codex" ||
-    createPage.section !== "Pre-Made Triggers"
+    createPage.section !== "Ideas"
   ) {
     throw new Error(
       `Desktop UI rendered an unexpected create page: ${JSON.stringify(createPage)}`,
@@ -925,7 +1214,7 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
   );
   if (
     lastOpenedExternalUrl !==
-    `codex://threads/new?prompt=${encodeURIComponent(CODEX_TRIGGER_PROMPT)}`
+    `codex://threads/new?prompt=${encodeURIComponent(codexTriggerPrompt())}`
   ) {
     throw new Error(
       `Ask Codex opened an unexpected URL: ${lastOpenedExternalUrl}`,
@@ -936,10 +1225,10 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
     `(async () => {
       document.querySelector(".header-icon-button")?.click();
       await new Promise(resolve => setTimeout(resolve, 0));
-      return document.querySelector(".active-triggers-title")?.textContent;
+      return document.querySelector(".triggers-title")?.textContent;
     })()`,
   );
-  if (returnedTitle !== "Active Triggers") {
+  if (returnedTitle !== "Triggers") {
     throw new Error(`Desktop UI back navigation failed: ${returnedTitle}`);
   }
 
@@ -1014,9 +1303,17 @@ async function startDesktop(): Promise<void> {
   console.log(`Trigger control API listening on ${addresses.control.origin}`);
   console.log(`Trigger webhook gateway listening on ${addresses.public.origin}`);
 
+  ipcMain.handle("desktop:get-onboarding-status", getOnboardingStatus);
+  ipcMain.handle("desktop:complete-onboarding", async () => {
+    try {
+      return await completeOnboarding();
+    } catch (error) {
+      return { completed: false, error: errorMessage(error) } as const;
+    }
+  });
   ipcMain.handle("desktop:get-status", () => currentStatus(triggerServer!));
-  ipcMain.handle("desktop:list-active-triggers", () =>
-    listActiveTriggers(triggerServer!),
+  ipcMain.handle("desktop:list-triggers", () =>
+    listTriggers(triggerServer!),
   );
   ipcMain.handle("desktop:get-trigger-page", (_event, triggerId: unknown) => {
     if (typeof triggerId !== "string" || triggerId.trim() === "") return null;
