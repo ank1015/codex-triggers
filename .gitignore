@@ -6,3 +6,4 @@ data/
 !.env.example
 .DS_Store
 *.log
+/apps/desktop/.dev/

@@ -6,10 +6,10 @@
   "type": "module",
   "main": "./dist/main.js",
   "scripts": {
-    "build": "pnpm clean && tsc -p tsconfig.json && node scripts/build-renderer.mjs && node scripts/copy-assets.mjs",
+    "build": "python3 scripts/generate-app-icon.py && pnpm clean && tsc -p tsconfig.json && node scripts/build-renderer.mjs && node scripts/copy-assets.mjs",
     "clean": "node scripts/clean.mjs",
     "build:trigger": "pnpm --filter @codexmaxxing/trigger build",
-    "dev": "pnpm build:trigger && pnpm build && electron .",
+    "dev": "pnpm build:trigger && pnpm build && node scripts/run-dev.mjs",
     "start": "electron .",
     "test": "pnpm smoke",
     "smoke": "pnpm build:trigger && pnpm build && TRIGGER_ADMIN_TOKEN=must-be-ignored TRIGGER_DESKTOP_SMOKE_TEST=1 electron .",
