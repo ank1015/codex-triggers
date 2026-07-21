@@ -19,6 +19,7 @@
     "@codexmaxxing/trigger": "workspace:*",
     "@tanstack/react-query": "^5.101.3",
     "lucide-react": "^1.25.0",
+    "node-mac-permissions": "github:codebytere/node-mac-permissions#7bdd039cc5bb0dd9c81540df4340b0c4bdb3be37",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

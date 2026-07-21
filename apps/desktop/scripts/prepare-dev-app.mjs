@@ -57,7 +57,7 @@ export async function prepareDevApp() {
     electronVersion: electronPackage.version,
     electronApp,
     iconHash,
-    bundleVersion: 3,
+    bundleVersion: 4,
   });
   const currentMarker = await readFile(markerPath, "utf8").catch(() => null);
 
@@ -69,11 +69,11 @@ export async function prepareDevApp() {
       force: true,
       verbatimSymlinks: true,
     });
-    await setPlistValue("CFBundleIdentifier", "com.codexmaxxing.triggers.dev");
+    await setPlistValue("CFBundleIdentifier", "com.codexmaxxing.triggers");
     await setPlistValue("CFBundleName", "Codex Triggers");
     await setPlistValue("CFBundleDisplayName", "Codex Triggers");
     await setPlistValue("CFBundleShortVersionString", "0.0.0");
-    await setPlistValue("CFBundleVersion", "2");
+    await setPlistValue("CFBundleVersion", "3");
     await setPlistValue("CFBundleIconFile", "app-icon.icns");
     await setPlistValue("NSUserNotificationAlertStyle", "alert");
     await cp(

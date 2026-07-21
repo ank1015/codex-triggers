@@ -6,6 +6,7 @@
     "build": "pnpm -r build",
     "dev": "pnpm --filter @codexmaxxing/trigger dev",
     "desktop": "pnpm --filter @codexmaxxing/desktop dev",
+    "desktop:signed": "pnpm --filter @codexmaxxing/desktop dev",
     "desktop:start": "pnpm --filter @codexmaxxing/desktop start",
     "desktop:smoke": "pnpm --filter @codexmaxxing/desktop smoke",
     "funnel": "pnpm --filter @codexmaxxing/trigger funnel",
