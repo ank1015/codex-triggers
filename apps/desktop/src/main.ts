@@ -10,6 +10,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,19 +32,27 @@ import {
   shell,
 } from "electron";
 
+import { IDEA_TOPICS, IDEAS } from "./ideas.js";
 import type {
   CodexModel,
   CodexReasoningEffort,
   DesktopStatus,
+  MacosNotificationPermission,
   TriggerSummary,
   TriggerPageData,
 } from "./shared.js";
 
 const directory = fileURLToPath(new URL(".", import.meta.url));
+const require = createRequire(import.meta.url);
 const smokeTest = process.env.TRIGGER_DESKTOP_SMOKE_TEST === "1";
 const execFileAsync = promisify(execFile);
 const SKILL_NAME = "manage-codex-triggers";
 const ONBOARDING_VERSION = 1;
+
+const macPermissions =
+  process.platform === "darwin"
+    ? (require("node-mac-permissions") as typeof import("node-mac-permissions"))
+    : null;
 
 if (smokeTest) {
   app.setPath("userData", join(tmpdir(), `codex-triggers-smoke-${process.pid}`));
@@ -56,6 +65,7 @@ let exitCode = 0;
 let lastOpenedExternalUrl: string | null = null;
 let smokeCodexAvailable = false;
 let unsubscribeTriggerNotifications: (() => void) | null = null;
+let unsubscribeDeliveryNotifications: (() => void) | null = null;
 let lastDesktopNotification:
   | { triggerId: string; title: string; body: string }
   | null = null;
@@ -84,8 +94,8 @@ function installedSkillPath(): string {
       );
 }
 
-function codexTriggerPrompt(): string {
-  return `[$${SKILL_NAME}](${join(installedSkillPath(), "SKILL.md")}) Create a trigger for`;
+function codexTriggerPrompt(instruction = "Create a trigger for"): string {
+  return `[$${SKILL_NAME}](${join(installedSkillPath(), "SKILL.md")}) ${instruction}`;
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -560,9 +570,9 @@ function createSmokeWebhookTunnel(): WebhookTunnel {
   };
 }
 
-async function openCodexNewChat(): Promise<void> {
+async function openCodexNewChat(prompt?: string): Promise<void> {
   const url = `codex://threads/new?prompt=${encodeURIComponent(
-    codexTriggerPrompt(),
+    codexTriggerPrompt(prompt),
   )}`;
   lastOpenedExternalUrl = url;
   if (!smokeTest) await shell.openExternal(url);
@@ -593,8 +603,53 @@ async function openTriggerFromNotification(triggerId: string): Promise<void> {
   window.webContents.send("desktop:open-trigger", summary);
 }
 
+async function openMacosNotificationSettings(): Promise<void> {
+  if (smokeTest) return;
+  await shell.openExternal(
+    "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
+  );
+}
+
+function getMacosNotificationPermission(): MacosNotificationPermission {
+  if (smokeTest) return "authorized";
+  if (!macPermissions || !ElectronNotification.isSupported()) {
+    return "unavailable";
+  }
+  const status = macPermissions.getAuthStatus("notifications");
+  switch (status) {
+    case "authorized":
+    case "provisional":
+    case "denied":
+    case "restricted":
+      return status;
+    case "not determined":
+      return "not-determined";
+    default:
+      return "unavailable";
+  }
+}
+
+async function requestMacosNotificationPermission(): Promise<MacosNotificationPermission> {
+  let status = getMacosNotificationPermission();
+  if (status !== "not-determined") return status;
+
+  const notification = new ElectronNotification({
+    title: "Codex Triggers",
+    body: "Notifications are ready.",
+  });
+  notification.show();
+
+  const deadline = Date.now() + 60_000;
+  while (status === "not-determined" && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    status = getMacosNotificationPermission();
+  }
+  return status;
+}
+
 function startDesktopNotifications(server: TriggerServer): void {
   unsubscribeTriggerNotifications?.();
+  unsubscribeDeliveryNotifications?.();
   unsubscribeTriggerNotifications = server.system.notifications.subscribe(
     (recorded) => {
       const trigger = server.system.database.getTrigger(recorded.triggerId);
@@ -623,6 +678,39 @@ function startDesktopNotifications(server: TriggerServer): void {
       notification.show();
     },
   );
+  unsubscribeDeliveryNotifications = server.system.delivery.subscribe((job) => {
+    if (
+      job.status !== "succeeded" ||
+      job.serviceType !== "codex-app-server" ||
+      job.config.threadMode !== "persistent"
+    ) {
+      return;
+    }
+    const recorded = server.system.database.getNotification(job.notificationId);
+    if (!recorded) return;
+    const trigger = server.system.database.getTrigger(recorded.triggerId);
+    if (!trigger?.macosNotificationsEnabled) return;
+    const threadId =
+      codexThreadId(job.result) ?? stringProperty(job.config, "threadId");
+    if (!threadId || smokeTest || !ElectronNotification.isSupported()) return;
+
+    const notification = new ElectronNotification({
+      title: `${trigger.name} completed`,
+      body: "Codex finished running. Click to open the task.",
+    });
+    notification.on("click", () => {
+      void openCodexThread(threadId);
+    });
+    notification.on("show", () => {
+      console.log(`Codex completion notification shown for task ${threadId}`);
+    });
+    notification.on("failed", (_event, error) => {
+      console.error(
+        `Codex completion notification failed for task ${threadId}: ${error}`,
+      );
+    });
+    notification.show();
+  });
 }
 
 async function runSmokeTest(server: TriggerServer): Promise<void> {
@@ -1392,6 +1480,113 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
     );
   }
 
+  const emptyTopicLabel =
+    IDEA_TOPICS.find(
+      ({ id }) => !IDEAS.some(({ tags }) => tags.includes(id)),
+    )?.label ?? null;
+  const ideasPage = (await window.webContents.executeJavaScript(
+    `(async () => {
+      const chipByLabel = (label) =>
+        Array.from(document.querySelectorAll(".topic-chip"))
+          .find((chip) => chip.textContent === label);
+      const cardTitles = () =>
+        Array.from(document.querySelectorAll(".idea-card h3"))
+          .map((element) => element.textContent);
+      const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+      const chips = Array.from(document.querySelectorAll(".topic-chip"))
+        .map((chip) => chip.textContent);
+      const allTitles = cardTitles();
+
+      chipByLabel("Developer")?.click();
+      await settle();
+      const developerTitles = cardTitles();
+      const developerPressed =
+        chipByLabel("Developer")?.getAttribute("aria-pressed");
+
+      chipByLabel("Productivity")?.click();
+      await settle();
+      const unionTitles = cardTitles();
+
+      chipByLabel("Developer")?.click();
+      chipByLabel("Productivity")?.click();
+      const emptyTopicLabel = ${JSON.stringify(emptyTopicLabel)};
+      let emptyTopicMessage = null;
+      if (emptyTopicLabel) {
+        chipByLabel(emptyTopicLabel)?.click();
+        await settle();
+        emptyTopicMessage =
+          document.querySelector(".empty-ideas")?.textContent ?? null;
+        chipByLabel(emptyTopicLabel)?.click();
+      }
+      await settle();
+      const restoredCount = document.querySelectorAll(".idea-card").length;
+      document.querySelector(".idea-card")?.click();
+      await settle();
+      return {
+        chips,
+        allTitles,
+        developerTitles,
+        developerPressed,
+        unionTitles,
+        emptyTopicMessage,
+        restoredCount,
+      };
+    })()`,
+  )) as {
+    chips?: Array<string | null>;
+    allTitles?: Array<string | null>;
+    developerTitles?: Array<string | null>;
+    developerPressed?: string;
+    unionTitles?: Array<string | null>;
+    emptyTopicMessage?: string | null;
+    restoredCount?: number;
+  };
+  const matchesTitles = (
+    actual: Array<string | null> | undefined,
+    expected: readonly string[],
+  ) => JSON.stringify(actual) === JSON.stringify(expected);
+  if (
+    !matchesTitles(
+      ideasPage.chips,
+      IDEA_TOPICS.map(({ label }) => label),
+    ) ||
+    !matchesTitles(
+      ideasPage.allTitles,
+      IDEAS.map(({ title }) => title),
+    ) ||
+    !matchesTitles(
+      ideasPage.developerTitles,
+      IDEAS.filter(({ tags }) => tags.includes("developer")).map(
+        ({ title }) => title,
+      ),
+    ) ||
+    ideasPage.developerPressed !== "true" ||
+    !matchesTitles(
+      ideasPage.unionTitles,
+      IDEAS.filter(({ tags }) =>
+        tags.some((tag) => tag === "developer" || tag === "productivity"),
+      ).map(({ title }) => title),
+    ) ||
+    ideasPage.emptyTopicMessage !==
+      (emptyTopicLabel ? "No ideas in these topics yet." : null) ||
+    ideasPage.restoredCount !== IDEAS.length
+  ) {
+    throw new Error(
+      `Desktop UI idea filters failed: ${JSON.stringify(ideasPage)}`,
+    );
+  }
+  if (
+    lastOpenedExternalUrl !==
+    `codex://threads/new?prompt=${encodeURIComponent(
+      codexTriggerPrompt(IDEAS[0]!.prompt),
+    )}`
+  ) {
+    throw new Error(
+      `Idea card opened an unexpected URL: ${lastOpenedExternalUrl}`,
+    );
+  }
+
   const returnedTitle = await window.webContents.executeJavaScript(
     `(async () => {
       document.querySelector(".header-icon-button")?.click();
@@ -1483,7 +1678,19 @@ async function startDesktop(): Promise<void> {
       return { completed: false, error: errorMessage(error) } as const;
     }
   });
+  ipcMain.handle(
+    "desktop:get-macos-notification-permission",
+    getMacosNotificationPermission,
+  );
+  ipcMain.handle(
+    "desktop:request-macos-notification-permission",
+    requestMacosNotificationPermission,
+  );
   ipcMain.handle("desktop:get-status", () => currentStatus(triggerServer!));
+  ipcMain.handle(
+    "desktop:open-macos-notification-settings",
+    openMacosNotificationSettings,
+  );
   ipcMain.handle("desktop:get-pending-trigger-navigation", (
     _event,
     expectedTriggerId: unknown,
@@ -1579,7 +1786,15 @@ async function startDesktop(): Promise<void> {
       throw new Error("Trigger not found");
     }
   });
-  ipcMain.handle("desktop:open-codex-new-chat", openCodexNewChat);
+  ipcMain.handle("desktop:open-codex-new-chat", (_event, prompt: unknown) => {
+    if (
+      prompt !== undefined &&
+      (typeof prompt !== "string" || prompt.trim() === "")
+    ) {
+      throw new Error("Invalid Codex prompt");
+    }
+    return openCodexNewChat(prompt);
+  });
   ipcMain.handle("desktop:open-codex-thread", (_event, threadId: unknown) => {
     if (typeof threadId !== "string" || threadId.trim() === "") {
       throw new Error("Invalid Codex thread ID");
@@ -1622,6 +1837,8 @@ async function startDesktop(): Promise<void> {
 async function stopDesktop(): Promise<void> {
   unsubscribeTriggerNotifications?.();
   unsubscribeTriggerNotifications = null;
+  unsubscribeDeliveryNotifications?.();
+  unsubscribeDeliveryNotifications = null;
   if (triggerServer) await triggerServer.stop();
   triggerServer = null;
 }

@@ -81,6 +81,14 @@ export type OnboardingStatus = {
   completed: boolean;
 };
 
+export type MacosNotificationPermission =
+  | "not-determined"
+  | "authorized"
+  | "provisional"
+  | "denied"
+  | "restricted"
+  | "unavailable";
+
 export type OnboardingResult =
   | {
       completed: true;
@@ -94,6 +102,8 @@ export type OnboardingResult =
 export type DesktopApi = {
   getOnboardingStatus(): Promise<OnboardingStatus>;
   completeOnboarding(): Promise<OnboardingResult>;
+  getMacosNotificationPermission(): Promise<MacosNotificationPermission>;
+  requestMacosNotificationPermission(): Promise<MacosNotificationPermission>;
   getStatus(): Promise<DesktopStatus>;
   listTriggers(): Promise<TriggerSummary[]>;
   getTriggerPage(triggerId: string): Promise<TriggerPageData | null>;
@@ -114,8 +124,9 @@ export type DesktopApi = {
     },
   ): Promise<TriggerPageData>;
   deleteTrigger(triggerId: string): Promise<void>;
-  openCodexNewChat(): Promise<void>;
+  openCodexNewChat(prompt?: string): Promise<void>;
   openCodexThread(threadId: string): Promise<void>;
+  openMacosNotificationSettings(): Promise<void>;
   getWebhookTunnelSettings(): Promise<WebhookTunnelSettings>;
   setWebhookTunnelEnabled(enabled: boolean): Promise<WebhookTunnelSettings>;
   getPendingTriggerNavigation(

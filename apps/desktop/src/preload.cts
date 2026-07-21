@@ -7,6 +7,10 @@ const api: DesktopApi = {
     await ipcRenderer.invoke("desktop:get-onboarding-status"),
   completeOnboarding: async () =>
     await ipcRenderer.invoke("desktop:complete-onboarding"),
+  getMacosNotificationPermission: async () =>
+    await ipcRenderer.invoke("desktop:get-macos-notification-permission"),
+  requestMacosNotificationPermission: async () =>
+    await ipcRenderer.invoke("desktop:request-macos-notification-permission"),
   getStatus: async () => await ipcRenderer.invoke("desktop:get-status"),
   listTriggers: async () => await ipcRenderer.invoke("desktop:list-triggers"),
   getTriggerPage: async (triggerId) =>
@@ -29,10 +33,12 @@ const api: DesktopApi = {
     await ipcRenderer.invoke("desktop:set-codex-options", triggerId, options),
   deleteTrigger: async (triggerId) =>
     await ipcRenderer.invoke("desktop:delete-trigger", triggerId),
-  openCodexNewChat: async () =>
-    await ipcRenderer.invoke("desktop:open-codex-new-chat"),
+  openCodexNewChat: async (prompt) =>
+    await ipcRenderer.invoke("desktop:open-codex-new-chat", prompt),
   openCodexThread: async (threadId) =>
     await ipcRenderer.invoke("desktop:open-codex-thread", threadId),
+  openMacosNotificationSettings: async () =>
+    await ipcRenderer.invoke("desktop:open-macos-notification-settings"),
   getWebhookTunnelSettings: async () =>
     await ipcRenderer.invoke("desktop:get-webhook-tunnel-settings"),
   setWebhookTunnelEnabled: async (enabled) =>
