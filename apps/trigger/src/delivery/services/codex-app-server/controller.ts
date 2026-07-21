@@ -4,6 +4,8 @@ import { mkdir, stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 
+import { requireCodexAppServerExecutable } from "../../../integrations/codex-app-server-executable.js";
+
 import type {
   CodexAppServerController,
   CodexAppServerModel,
@@ -445,9 +447,11 @@ export class ProcessCodexAppServerController
   private async getClient(): Promise<CodexAppServerClient> {
     if (this.client && !this.client.closed) return this.client;
     if (this.starting) return await this.starting;
-    this.starting = CodexAppServerClient.start(
-      this.options.executable ?? "codex",
-    );
+    this.starting = (async () =>
+      await CodexAppServerClient.start(
+        this.options.executable ??
+          (await requireCodexAppServerExecutable()),
+      ))();
     try {
       this.client = await this.starting;
       return this.client;
