@@ -1,0 +1,74 @@
+name: Release Codex Triggers
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-mac:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm desktop:package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-triggers-darwin-${{ matrix.architecture }}
+          path: |
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.sha256
+
+  github-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-mac
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: codex-triggers-darwin-*
+          merge-multiple: true
+          path: release
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+
+  npm-publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: github-release
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - if: env.NODE_AUTH_TOKEN != ''
+        run: pnpm --filter codex-triggers publish --access public --no-git-checks
+      - if: env.NODE_AUTH_TOKEN == ''
+        run: echo "NPM_TOKEN is not configured; skipping npm publish."

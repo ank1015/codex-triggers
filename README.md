@@ -36,6 +36,8 @@ apps/
     │   └── runtime/     Code compilation and Worker Thread execution
     ├── test/            End-to-end tests grouped by Trigger type
     └── scripts/         Build cleanup and Tailscale commands
+packages/
+└── codex-triggers/      Small `npx` installer for GitHub release builds
 ```
 
 ## Requirements
@@ -92,6 +94,32 @@ with `pnpm dev` or `pnpm start` continues to register all three current Codex
 adapters. API formats are shared. Trigger Desktop always keeps its control API
 unauthenticated on loopback and ignores `TRIGGER_ADMIN_TOKEN`; the standalone
 host retains the optional token setting.
+
+## Install the desktop beta
+
+Initial macOS builds can be installed or updated without cloning this repo:
+
+```sh
+npx codex-triggers@latest
+```
+
+The installer downloads the release matching the Mac's processor, verifies its
+SHA-256 checksum, installs it to `~/Applications/Codex Triggers.app`, applies a
+local ad-hoc signature, and launches it. Existing Trigger data lives outside
+the application bundle and is preserved during updates. On first launch, click
+**Let's Start** to verify that Codex app-server is available and install or
+update the bundled Codex Trigger skill.
+
+To build the release archive for the current Mac locally:
+
+```sh
+pnpm desktop:package
+```
+
+Artifacts are written to `apps/desktop/release/`. A `v*` Git tag runs the
+release workflow for Apple Silicon and Intel Macs and attaches both archives
+and checksum files to the matching GitHub Release. Publishing the npm installer
+requires the repository's `NPM_TOKEN` secret.
 
 ## Expose webhooks with Tailscale
 
