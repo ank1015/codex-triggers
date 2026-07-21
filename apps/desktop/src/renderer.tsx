@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 
+import { IDEA_TOPICS, IDEAS, type IdeaTopic } from "./ideas.js";
 import type {
   CodexModel,
   CodexReasoningEffort,
@@ -35,6 +36,28 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+async function ensureMacosNotificationPermission(): Promise<void> {
+  const permission = await window.desktop.requestMacosNotificationPermission();
+  if (permission === "unavailable") {
+    throw new Error("Native notifications are not available on this Mac.");
+  }
+  if (permission !== "authorized" && permission !== "provisional") {
+    throw new Error(
+      "Allow notifications for Codex Triggers in System Settings → Notifications.",
+    );
+  }
+}
+
+function macosNotificationPermissionMessage(
+  permission: Awaited<
+    ReturnType<typeof window.desktop.getMacosNotificationPermission>
+  >,
+): string {
+  return permission === "denied" || permission === "restricted"
+    ? "Notifications are disabled for Codex Triggers in macOS."
+    : "Allow notifications so Codex Triggers can alert you when a Trigger runs.";
+}
 
 function Header({
   onBack,
@@ -213,8 +236,13 @@ function TriggerPage({
     },
   });
   const macosNotificationMutation = useMutation({
-    mutationFn: (enabled: boolean) =>
-      window.desktop.setMacosNotificationsEnabled(trigger.id, enabled),
+    mutationFn: async (enabled: boolean) => {
+      if (enabled) await ensureMacosNotificationPermission();
+      return await window.desktop.setMacosNotificationsEnabled(
+        trigger.id,
+        enabled,
+      );
+    },
     onSuccess: (page) => {
       queryClient.setQueryData(queryKey, page);
       void queryClient.invalidateQueries({ queryKey: ["triggers"] });
@@ -528,9 +556,31 @@ function TriggerPage({
   );
 }
 
+const ideaTopicLabels = new Map(
+  IDEA_TOPICS.map(({ id, label }) => [id, label]),
+);
+
 function CreateTriggerPage() {
-  const askCodex = () => {
-    void window.desktop.openCodexNewChat().catch((error: unknown) => {
+  const [selectedTopics, setSelectedTopics] = useState<readonly IdeaTopic[]>(
+    [],
+  );
+
+  const toggleTopic = (topic: IdeaTopic) => {
+    setSelectedTopics((current) =>
+      current.includes(topic)
+        ? current.filter((selected) => selected !== topic)
+        : [...current, topic],
+    );
+  };
+  const visibleIdeas =
+    selectedTopics.length === 0
+      ? IDEAS
+      : IDEAS.filter((idea) =>
+          idea.tags.some((tag) => selectedTopics.includes(tag)),
+        );
+
+  const askCodex = (prompt?: string) => {
+    void window.desktop.openCodexNewChat(prompt).catch((error: unknown) => {
       console.error("Could not open Codex", error);
     });
   };
@@ -541,12 +591,56 @@ function CreateTriggerPage() {
 
       <section className="codex-skill-card" aria-label="Create with Codex">
         <p>Create ANY trigger by just asking Codex for it using the official skill</p>
-        <button className="ask-codex-button" type="button" onClick={askCodex}>
+        <button
+          className="ask-codex-button"
+          type="button"
+          onClick={() => askCodex()}
+        >
           Ask Codex
         </button>
       </section>
 
       <h2 className="pre-made-title">Ideas</h2>
+      <div
+        className="idea-topic-chips"
+        role="group"
+        aria-label="Filter ideas by topic"
+      >
+        {IDEA_TOPICS.map((topic) => (
+          <button
+            key={topic.id}
+            className="topic-chip"
+            type="button"
+            aria-pressed={selectedTopics.includes(topic.id)}
+            onClick={() => toggleTopic(topic.id)}
+          >
+            {topic.label}
+          </button>
+        ))}
+      </div>
+      {visibleIdeas.length === 0 ? (
+        <p className="empty-ideas">No ideas in these topics yet.</p>
+      ) : (
+        <section className="idea-grid" aria-label="Trigger ideas">
+          {visibleIdeas.map((idea) => (
+            <button
+              key={idea.id}
+              className="idea-card"
+              type="button"
+              aria-label={`Ask Codex to create: ${idea.title}`}
+              onClick={() => askCodex(idea.prompt)}
+            >
+              <h3>{idea.title}</h3>
+              <p>{idea.description}</p>
+              <div className="idea-card-tags" aria-hidden="true">
+                {idea.tags.map((tag) => (
+                  <span key={tag}>{ideaTopicLabels.get(tag)}</span>
+                ))}
+              </div>
+            </button>
+          ))}
+        </section>
+      )}
     </main>
   );
 }
@@ -624,21 +718,23 @@ function SettingsPage() {
   );
 }
 
-function FunnelReminderBanner({
+function ReminderBanner({
+  message,
   onClose,
-  onOpenSettings,
+  onAction,
 }: {
+  message: string;
   onClose: () => void;
-  onOpenSettings: () => void;
+  onAction: () => void;
 }) {
   return (
     <aside className="funnel-banner" role="status">
       <button
         className="funnel-banner-content"
         type="button"
-        onClick={onOpenSettings}
+        onClick={onAction}
       >
-        Turn on Tailscale funneling for external webhook events
+        {message}
       </button>
       <button
         className="funnel-banner-close"
@@ -707,6 +803,8 @@ function MainApplication({
     Exclude<Page, "settings">
   >("home");
   const [funnelBannerVisible, setFunnelBannerVisible] = useState(false);
+  const [notificationPermissionError, setNotificationPermissionError] =
+    useState<string | null>(null);
 
   useEffect(() => {
     if (!requestedTrigger) return;
@@ -724,6 +822,30 @@ function MainApplication({
       .catch(() => {
         // If Tailscale status can't be read, skip the reminder.
       });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      window.desktop.listTriggers(),
+      window.desktop.getMacosNotificationPermission(),
+    ]).then(([triggers, permission]) => {
+      if (
+        !cancelled &&
+        triggers.some(({ macosNotificationsEnabled }) =>
+          macosNotificationsEnabled
+        ) &&
+        permission !== "authorized" &&
+        permission !== "provisional"
+      ) {
+        setNotificationPermissionError(
+          macosNotificationPermissionMessage(permission),
+        );
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -776,14 +898,46 @@ function MainApplication({
         onSettings={page === "settings" ? undefined : openSettings}
       />
       {pageContent}
-      {page === "home" && funnelBannerVisible ? (
-        <FunnelReminderBanner
-          onClose={() => setFunnelBannerVisible(false)}
-          onOpenSettings={() => {
-            setFunnelBannerVisible(false);
-            openSettings();
-          }}
-        />
+      {page === "home" &&
+      (funnelBannerVisible || notificationPermissionError) ? (
+        <div className="home-reminder-stack">
+          {funnelBannerVisible ? (
+            <ReminderBanner
+              message="Turn on Tailscale funneling for external webhook events"
+              onClose={() => setFunnelBannerVisible(false)}
+              onAction={() => {
+                setFunnelBannerVisible(false);
+                openSettings();
+              }}
+            />
+          ) : null}
+          {notificationPermissionError ? (
+            <ReminderBanner
+              message={notificationPermissionError}
+              onClose={() => setNotificationPermissionError(null)}
+              onAction={() => {
+                void window.desktop
+                  .getMacosNotificationPermission()
+                  .then(async (permission) => {
+                    if (
+                      permission === "denied" ||
+                      permission === "restricted"
+                    ) {
+                      await window.desktop.openMacosNotificationSettings();
+                      return;
+                    }
+                    await ensureMacosNotificationPermission();
+                    setNotificationPermissionError(null);
+                  })
+                  .catch(() =>
+                    setNotificationPermissionError(
+                      "Could not enable macOS notifications.",
+                    ),
+                  );
+              }}
+            />
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
@@ -813,7 +967,8 @@ function App() {
     retry: false,
   });
   const completeOnboardingMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (notificationPermission: Promise<void>) => {
+      await notificationPermission.catch(() => undefined);
       const result = await window.desktop.completeOnboarding();
       if (!result.completed) throw new Error(result.error);
       return result;
@@ -840,7 +995,10 @@ function App() {
         pending={completeOnboardingMutation.isPending}
         error={error}
         onDismissError={() => setErrorDismissed(true)}
-        onComplete={() => completeOnboardingMutation.mutate()}
+        onComplete={() => {
+          const permission = ensureMacosNotificationPermission();
+          completeOnboardingMutation.mutate(permission);
+        }}
       />
     );
   }

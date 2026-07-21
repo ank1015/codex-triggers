@@ -918,6 +918,125 @@ button {
   letter-spacing: -0.01em;
 }
 
+.idea-topic-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.topic-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 13px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.topic-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.topic-chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.topic-chip[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--text);
+  color: var(--bg);
+}
+
+.topic-chip[aria-pressed="true"]:hover {
+  background: #ffffff;
+}
+
+.idea-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.idea-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.idea-card:hover {
+  border-color: var(--border);
+  background: var(--surface-raised);
+}
+
+.idea-card:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.idea-card h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.idea-card p {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.idea-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.idea-card-tags span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.empty-ideas {
+  margin: 16px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 620px) {
+  .idea-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .settings-title {
   margin: 0 0 24px;
   font-size: 24px;
@@ -1013,11 +1132,18 @@ button {
   outline-offset: 3px;
 }
 
-.funnel-banner {
+.home-reminder-stack {
   position: fixed;
   right: 20px;
   bottom: 20px;
   z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.funnel-banner {
   display: flex;
   align-items: center;
   gap: 12px;
