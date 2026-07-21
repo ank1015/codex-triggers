@@ -71,6 +71,12 @@ jobs:
           registry-url: https://registry.npmjs.org
       - if: env.NODE_AUTH_TOKEN != ''
         working-directory: packages/codex-triggers
-        run: npm publish --access public
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "codex-triggers@$VERSION" version >/dev/null 2>&1; then
+            echo "codex-triggers@$VERSION is already published."
+          else
+            npm publish --access public
+          fi
       - if: env.NODE_AUTH_TOKEN == ''
         run: echo "NPM_TOKEN is not configured; skipping npm publish."
