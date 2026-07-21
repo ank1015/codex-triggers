@@ -85,6 +85,8 @@ importers:
         specifier: ^5.9.2
         version: 5.9.3
 
+  packages/codex-triggers: {}
+
 packages:
 
   '@electron-internal/extract-zip@1.0.4':
