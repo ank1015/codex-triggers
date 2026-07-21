@@ -14,6 +14,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
+import { Transform } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
@@ -31,6 +32,20 @@ function log(message) {
   process.stdout.write(`${message}\n`);
 }
 
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
+}
+
+function progress(message, done = false) {
+  if (process.stdout.isTTY) {
+    process.stdout.write(`\r\u001b[2K${message}${done ? "\n" : ""}`);
+  } else if (done) {
+    log(message);
+  }
+}
+
 function fail(message) {
   process.stderr.write(`\nCodex Triggers could not be installed: ${message}\n`);
   process.exitCode = 1;
@@ -45,7 +60,7 @@ async function exists(path) {
   }
 }
 
-async function download(url, destination) {
+async function download(url, destination, { showProgress = false } = {}) {
   const response = await fetch(url, {
     headers: { "user-agent": `codex-triggers-installer/${version}` },
     redirect: "follow",
@@ -53,7 +68,28 @@ async function download(url, destination) {
   if (!response.ok || !response.body) {
     throw new Error(`download failed (${response.status}) for ${url}`);
   }
-  await pipeline(response.body, createWriteStream(destination));
+  const total = Number(response.headers.get("content-length")) || null;
+  let received = 0;
+  let lastUpdate = 0;
+  const tracker = new Transform({
+    transform(chunk, _encoding, callback) {
+      received += chunk.length;
+      const now = Date.now();
+      if (showProgress && now - lastUpdate >= 200) {
+        const percent = total ? ` (${Math.round((received / total) * 100)}%)` : "";
+        progress(`   ${formatBytes(received)}${total ? ` / ${formatBytes(total)}` : ""}${percent}`);
+        lastUpdate = now;
+      }
+      callback(null, chunk);
+    },
+  });
+  await pipeline(response.body, tracker, createWriteStream(destination));
+  if (showProgress) {
+    progress(
+      `   ${formatBytes(received)}${total ? ` / ${formatBytes(total)}` : ""} (100%)`,
+      true,
+    );
+  }
 }
 
 async function sha256(path) {
@@ -88,20 +124,22 @@ async function install() {
   const backup = join(temporary, `${appName}.previous`);
 
   try {
+    log(`[1/6] Preparing Codex Triggers v${version} for ${process.arch}…`);
     const localArchive = process.env.CODEX_TRIGGERS_ARCHIVE;
     if (localArchive) {
-      log(`Using local release ${basename(localArchive)}…`);
+      log(`[2/6] Using local release ${basename(localArchive)}…`);
       await cp(resolve(localArchive), archive);
     } else {
       const archiveUrl = process.env.CODEX_TRIGGERS_DOWNLOAD_URL ||
         `${releaseBase}/${artifact}`;
-      log(`Downloading Codex Triggers v${version} for ${process.arch}…`);
-      await download(archiveUrl, archive);
+      log(`[2/6] Downloading application…`);
+      await download(archiveUrl, archive, { showProgress: true });
 
       const checksumUrl = process.env.CODEX_TRIGGERS_CHECKSUM_URL ||
         `${archiveUrl}.sha256`;
       const checksumPath = `${archive}.sha256`;
       await download(checksumUrl, checksumPath);
+      log(`[3/6] Verifying download integrity…`);
       const expected = (await readFile(checksumPath, "utf8"))
         .trim()
         .split(/\s+/)[0];
@@ -111,6 +149,8 @@ async function install() {
       }
     }
 
+    if (localArchive) log(`[3/6] Local release selected; checksum skipped.`);
+    log(`[4/6] Extracting application…`);
     await mkdir(extracted, { recursive: true });
     await execFile("ditto", ["-x", "-k", archive, extracted]);
     const source = join(extracted, appName);
@@ -118,7 +158,7 @@ async function install() {
       throw new Error(`release archive does not contain ${appName}`);
     }
 
-    log(`Installing to ${destination}…`);
+    log(`[5/6] Installing and signing ${destination}…`);
     await mkdir(applicationsDirectory, { recursive: true });
     await terminateRunningApp();
     if (await exists(destination)) await rename(destination, backup);
@@ -147,7 +187,10 @@ async function install() {
 
     await rm(backup, { recursive: true, force: true });
     if (process.env.CODEX_TRIGGERS_SKIP_LAUNCH !== "1") {
+      log(`[6/6] Launching Codex Triggers…`);
       await execFile("open", [destination]);
+    } else {
+      log(`[6/6] Launch skipped.`);
     }
     log("\nCodex Triggers is installed.");
     log("Open it and click “Let's Start” to verify Codex and install the skill.");

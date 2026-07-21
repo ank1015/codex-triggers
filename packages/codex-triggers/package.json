@@ -1,6 +1,6 @@
 {
   "name": "codex-triggers",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Install and update the Codex Triggers desktop app.",
   "type": "module",
   "bin": {
