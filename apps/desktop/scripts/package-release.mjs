@@ -67,6 +67,7 @@ async function buildRelease() {
     "pnpm",
     [
       "--config.node-linker=hoisted",
+      "--config.force-legacy-deploy=true",
       "--filter",
       "@codexmaxxing/desktop",
       "deploy",
