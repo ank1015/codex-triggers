@@ -141,6 +141,12 @@ Service code may watch files, host a route or socket, subscribe to a queue, or
 maintain a connection. The host starts, stops, restores, and restarts its Worker
 Thread.
 
+Filesystem watchers often emit more than one event for a single file. Debounce
+concurrent events in memory and persist a stable file signature such as
+`filename + size + mtimeMs` when duplicate work would be harmful. In-memory
+sets alone reset whenever the app or Service Trigger restarts; a startup scan
+can then emit the same still-present file again.
+
 ## Safety and validation
 
 - Use TypeScript or JavaScript ESM.
