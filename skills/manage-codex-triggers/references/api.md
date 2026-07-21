@@ -24,6 +24,12 @@ Health check:
 GET /health
 ```
 
+Before creation, list existing Triggers to avoid accidental duplicates:
+
+```http
+GET /v1/triggers
+```
+
 ## Create a complete Trigger system
 
 ```http
