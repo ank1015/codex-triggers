@@ -10,6 +10,9 @@ export class DeliveryQueue {
   private stopping = false;
   private drainPromise: Promise<void> | null = null;
   private readonly controllers = new Map<string, AbortController>();
+  private readonly listeners = new Set<
+    (job: DeliveryJob) => void | Promise<void>
+  >();
 
   constructor(
     private readonly database: TriggerDatabase,
@@ -24,6 +27,19 @@ export class DeliveryQueue {
     this.timer = setInterval(() => this.wake(), this.intervalMs);
     this.timer.unref();
     this.wake();
+  }
+
+  subscribe(listener: (job: DeliveryJob) => void | Promise<void>): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private emit(job: DeliveryJob): void {
+    for (const listener of this.listeners) {
+      void Promise.resolve(listener(job)).catch((error: unknown) => {
+        console.error("Delivery job listener failed", error);
+      });
+    }
   }
 
   wake(): void {
@@ -75,14 +91,21 @@ export class DeliveryQueue {
         },
       });
       const result = value === undefined ? null : asJsonValue(value, "Delivery result");
-      this.database.delivery.finishJob(job.id, "succeeded", result, null);
+      const finished = this.database.delivery.finishJob(
+        job.id,
+        "succeeded",
+        result,
+        null,
+      );
+      if (finished) this.emit(finished);
     } catch (error) {
-      this.database.delivery.finishJob(
+      const finished = this.database.delivery.finishJob(
         job.id,
         "failed",
         null,
         error instanceof Error ? error.message : String(error),
       );
+      if (finished) this.emit(finished);
     } finally {
       this.controllers.delete(job.id);
     }

@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import type { JsonValue } from "../src/domain/types.js";
 import type {
+  DeliveryJob,
   DeliveryService,
   DeliveryServiceRequest,
 } from "../src/delivery/domain/types.js";
@@ -108,6 +109,10 @@ test("Notification data is rendered and delivered through a configured service",
     network: true,
     deliveryServices: [captureService(received)],
   });
+  const completedJobs: DeliveryJob[] = [];
+  const unsubscribe = harness.system.delivery.subscribe((job) => {
+    completedJobs.push(job);
+  });
   const controlOrigin = serverOrigin(harness.controlServer!);
   const trigger = await createTestTrigger(harness.system);
 
@@ -142,7 +147,9 @@ test("Notification data is rendered and delivered through a configured service",
   await waitFor(() => {
     assert.equal(harness.system.database.getExecution(execution.id)?.status, "succeeded");
     assert.equal(received.length, 1);
+    assert.equal(completedJobs.length, 1);
   });
+  unsubscribe();
 
   assert.deepEqual(received[0]?.config, { projectId: "project-123" });
   assert.deepEqual(received[0]?.input, {
@@ -159,6 +166,7 @@ test("Notification data is rendered and delivered through a configured service",
   };
   assert.equal(jobs.length, 1);
   assert.equal(jobs[0]?.status, "succeeded");
+  assert.equal(completedJobs[0]?.id, jobs[0]?.id);
   assert.deepEqual(jobs[0]?.result, {
     accepted: true,
     projectId: "project-123",

@@ -7,6 +7,7 @@ import type {
   CreateDeliveryInput,
   Delivery,
   DeliveryDetails,
+  DeliveryJob,
   DeliveryService,
   DeliveryTarget,
   UpdateDeliveryInput,
@@ -38,6 +39,10 @@ export class DeliverySystem {
   start(): void {
     this.database.delivery.recoverRunningJobs();
     this.queue.start();
+  }
+
+  subscribe(listener: (job: DeliveryJob) => void | Promise<void>): () => void {
+    return this.queue.subscribe(listener);
   }
 
   async stop(): Promise<void> {
