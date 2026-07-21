@@ -11,6 +11,7 @@ export type TriggerSummary = {
   name: string;
   kind: "webhook" | "schedule" | "service";
   enabled: boolean;
+  macosNotificationsEnabled: boolean;
 };
 
 export type TriggerRunStatus =
@@ -97,6 +98,10 @@ export type DesktopApi = {
   listTriggers(): Promise<TriggerSummary[]>;
   getTriggerPage(triggerId: string): Promise<TriggerPageData | null>;
   setTriggerEnabled(triggerId: string, enabled: boolean): Promise<TriggerPageData>;
+  setMacosNotificationsEnabled(
+    triggerId: string,
+    enabled: boolean,
+  ): Promise<TriggerPageData>;
   setCodexShowInCodex(
     triggerId: string,
     showInCodex: boolean,
@@ -113,4 +118,10 @@ export type DesktopApi = {
   openCodexThread(threadId: string): Promise<void>;
   getWebhookTunnelSettings(): Promise<WebhookTunnelSettings>;
   setWebhookTunnelEnabled(enabled: boolean): Promise<WebhookTunnelSettings>;
+  getPendingTriggerNavigation(
+    expectedTriggerId?: string,
+  ): Promise<TriggerSummary | null>;
+  onOpenTrigger(
+    listener: (trigger: TriggerSummary) => void,
+  ): () => void;
 };

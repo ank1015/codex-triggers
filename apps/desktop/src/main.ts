@@ -22,7 +22,14 @@ import {
   type WebhookTunnel,
   type WebhookTunnelStatus,
 } from "@codexmaxxing/trigger";
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Notification as ElectronNotification,
+  shell,
+} from "electron";
 
 import type {
   CodexModel,
@@ -48,7 +55,16 @@ let shutdownComplete = false;
 let exitCode = 0;
 let lastOpenedExternalUrl: string | null = null;
 let smokeCodexAvailable = false;
+let unsubscribeTriggerNotifications: (() => void) | null = null;
+let lastDesktopNotification:
+  | { triggerId: string; title: string; body: string }
+  | null = null;
+let pendingTriggerNavigation: TriggerSummary | null = null;
 const windowLoads = new WeakMap<BrowserWindow, Promise<void>>();
+
+function currentDesktopNotification() {
+  return lastDesktopNotification;
+}
 
 function onboardingMarkerPath(): string {
   return join(app.getPath("userData"), "onboarding.json");
@@ -243,7 +259,13 @@ function currentStatus(server: TriggerServer): DesktopStatus {
 function listTriggers(server: TriggerServer): TriggerSummary[] {
   return server.system.database
     .listTriggers()
-    .map(({ id, name, kind, enabled }) => ({ id, name, kind, enabled }));
+    .map(({ id, name, kind, enabled, macosNotificationsEnabled }) => ({
+      id,
+      name,
+      kind,
+      enabled,
+      macosNotificationsEnabled,
+    }));
 }
 
 function stringProperty(
@@ -315,6 +337,8 @@ function getTriggerPageData(
       name: details.trigger.name,
       kind: details.trigger.kind,
       enabled: details.trigger.enabled,
+      macosNotificationsEnabled:
+        details.trigger.macosNotificationsEnabled,
       createdAt: details.trigger.createdAt,
       updatedAt: details.trigger.updatedAt,
     },
@@ -412,6 +436,18 @@ async function setTriggerEnabled(
   enabled: boolean,
 ): Promise<TriggerPageData> {
   const updated = await server.system.updateTrigger(triggerId, { enabled });
+  if (!updated) throw new Error("Trigger not found");
+  return getTriggerPageData(server, triggerId)!;
+}
+
+async function setMacosNotificationsEnabled(
+  server: TriggerServer,
+  triggerId: string,
+  enabled: boolean,
+): Promise<TriggerPageData> {
+  const updated = await server.system.updateTrigger(triggerId, {
+    macosNotificationsEnabled: enabled,
+  });
   if (!updated) throw new Error("Trigger not found");
   return getTriggerPageData(server, triggerId)!;
 }
@@ -538,6 +574,57 @@ async function openCodexThread(threadId: string): Promise<void> {
   if (!smokeTest) await shell.openExternal(url);
 }
 
+async function openTriggerFromNotification(triggerId: string): Promise<void> {
+  const trigger = triggerServer?.system.database.getTrigger(triggerId);
+  if (!trigger) return;
+  const summary = {
+    id: trigger.id,
+    name: trigger.name,
+    kind: trigger.kind,
+    enabled: trigger.enabled,
+    macosNotificationsEnabled: trigger.macosNotificationsEnabled,
+  } satisfies TriggerSummary;
+  pendingTriggerNavigation = summary;
+  if (!window) window = createWindow();
+  await windowLoads.get(window);
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+  window.webContents.send("desktop:open-trigger", summary);
+}
+
+function startDesktopNotifications(server: TriggerServer): void {
+  unsubscribeTriggerNotifications?.();
+  unsubscribeTriggerNotifications = server.system.notifications.subscribe(
+    (recorded) => {
+      const trigger = server.system.database.getTrigger(recorded.triggerId);
+      if (!trigger?.macosNotificationsEnabled) return;
+      lastDesktopNotification = {
+        triggerId: trigger.id,
+        title: trigger.name,
+        body: recorded.output.message,
+      };
+      if (smokeTest || !ElectronNotification.isSupported()) return;
+      const notification = new ElectronNotification({
+        title: trigger.name,
+        body: recorded.output.message,
+      });
+      notification.on("click", () => {
+        void openTriggerFromNotification(trigger.id);
+      });
+      notification.on("show", () => {
+        console.log(`macOS notification shown for Trigger ${trigger.id}`);
+      });
+      notification.on("failed", (_event, error) => {
+        console.error(
+          `macOS notification failed for Trigger ${trigger.id}: ${error}`,
+        );
+      });
+      notification.show();
+    },
+  );
+}
+
 async function runSmokeTest(server: TriggerServer): Promise<void> {
   const smokeTrigger = await server.system.createTrigger({
     name: "Smoke Trigger",
@@ -572,6 +659,15 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
     "succeeded"
   ) {
     throw new Error("Smoke Trigger execution did not succeed");
+  }
+  if (
+    lastDesktopNotification?.triggerId !== smokeTrigger.details.trigger.id ||
+    lastDesktopNotification.title !== "Smoke Trigger" ||
+    lastDesktopNotification.body !== "Smoke Trigger ran"
+  ) {
+    throw new Error(
+      `Desktop notification was not emitted: ${JSON.stringify(lastDesktopNotification)}`,
+    );
   }
   server.system.database.addNotification({
     id: "smoke-second-notification",
@@ -812,6 +908,7 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
         code: document.querySelector(".code-block code")?.textContent,
         prompt: document.querySelector(".codex-prompt code")?.textContent,
         model: document.querySelector('[aria-label="Codex model"]')?.value,
+        macosNotification: document.querySelector('[aria-label="macOS Notification"]')?.getAttribute("aria-checked"),
         showInCodex: document.querySelector('[aria-label="Show in Codex"]')?.getAttribute("aria-checked"),
         recentMessage: document.querySelector(".recent-run-copy p")?.textContent,
         recentCount: document.querySelectorAll(".recent-runs-list li").length,
@@ -827,6 +924,7 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
     code?: string;
     prompt?: string;
     model?: string;
+    macosNotification?: string;
     showInCodex?: string;
     recentMessage?: string;
     recentCount?: number;
@@ -841,6 +939,7 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
     !triggerPage.code?.includes("Smoke Trigger ran") ||
     triggerPage.prompt !== "Handle this Trigger: {{message}}" ||
     triggerPage.model !== "luna" ||
+    triggerPage.macosNotification !== "true" ||
     triggerPage.showInCodex !== "true" ||
     triggerPage.recentMessage !== "Second Smoke Trigger notification" ||
     triggerPage.recentCount !== 2
@@ -913,6 +1012,12 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
       triggerToggle?.click();
       const disabled = await waitChecked(triggerToggle, "false");
 
+      const macosToggle = document.querySelector('[aria-label="macOS Notification"]');
+      macosToggle?.click();
+      const macosDisabled = await waitChecked(macosToggle, "false");
+      macosToggle?.click();
+      const macosReenabled = await waitChecked(macosToggle, "true");
+
       const codexToggle = document.querySelector('[aria-label="Show in Codex"]');
       codexToggle?.click();
       const hidden = await waitChecked(codexToggle, "false");
@@ -920,6 +1025,8 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
       const reshown = await waitChecked(codexToggle, "true");
       return {
         disabled,
+        macosDisabled,
+        macosReenabled,
         hidden,
         reshown,
       };
@@ -927,12 +1034,57 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
   )) as Record<string, string | undefined>;
   if (
     toggles.disabled !== "false" ||
+    toggles.macosDisabled !== "false" ||
+    toggles.macosReenabled !== "true" ||
     toggles.hidden !== "false" ||
     toggles.reshown !== "true"
   ) {
     throw new Error(
       `Desktop UI Trigger toggles failed: ${JSON.stringify(toggles)}`,
     );
+  }
+
+  await server.system.updateTrigger(smokeTrigger.details.trigger.id, {
+    macosNotificationsEnabled: false,
+  });
+  lastDesktopNotification = null;
+  const mutedExecution = server.system.runManually(
+    smokeTrigger.details.trigger.id,
+    {},
+  )!;
+  const mutedDeadline = Date.now() + 4_000;
+  while (
+    server.system.database.getExecution(mutedExecution.id)?.status !==
+      "succeeded" &&
+    Date.now() < mutedDeadline
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  if (lastDesktopNotification !== null) {
+    throw new Error("Disabled macOS notifications still emitted an alert");
+  }
+
+  await server.system.updateTrigger(smokeTrigger.details.trigger.id, {
+    macosNotificationsEnabled: true,
+  });
+  const notifiedExecution = server.system.runManually(
+    smokeTrigger.details.trigger.id,
+    {},
+  )!;
+  const notifiedDeadline = Date.now() + 4_000;
+  while (
+    server.system.database.getExecution(notifiedExecution.id)?.status !==
+      "succeeded" &&
+    Date.now() < notifiedDeadline
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  if (
+    currentDesktopNotification()?.triggerId !==
+    smokeTrigger.details.trigger.id
+  ) {
+    throw new Error("Re-enabled macOS notifications did not emit an alert");
   }
 
   await window.webContents.executeJavaScript(
@@ -976,6 +1128,25 @@ async function runSmokeTest(server: TriggerServer): Promise<void> {
       `Desktop UI hid or misrepresented an inactive Trigger: ${JSON.stringify(inactiveTriggerOnHome)}`,
     );
   }
+
+  await openTriggerFromNotification(smokeTrigger.details.trigger.id);
+  const notificationNavigation = (await window.webContents.executeJavaScript(
+    `(async () => {
+      const deadline = Date.now() + 2_000;
+      while (!document.querySelector(".trigger-detail-heading h1") && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      return document.querySelector(".trigger-detail-heading h1")?.textContent;
+    })()`,
+  )) as string | undefined;
+  if (notificationNavigation !== "Smoke Trigger") {
+    throw new Error(
+      `Desktop notification did not open its Trigger: ${notificationNavigation}`,
+    );
+  }
+  await window.webContents.executeJavaScript(
+    `document.querySelector(".header-icon-button")?.click()`,
+  );
 
   const reenabledTrigger = (await window.webContents.executeJavaScript(
     `(async () => {
@@ -1302,6 +1473,7 @@ async function startDesktop(): Promise<void> {
   const addresses = await triggerServer.start();
   console.log(`Trigger control API listening on ${addresses.control.origin}`);
   console.log(`Trigger webhook gateway listening on ${addresses.public.origin}`);
+  startDesktopNotifications(triggerServer);
 
   ipcMain.handle("desktop:get-onboarding-status", getOnboardingStatus);
   ipcMain.handle("desktop:complete-onboarding", async () => {
@@ -1312,6 +1484,20 @@ async function startDesktop(): Promise<void> {
     }
   });
   ipcMain.handle("desktop:get-status", () => currentStatus(triggerServer!));
+  ipcMain.handle("desktop:get-pending-trigger-navigation", (
+    _event,
+    expectedTriggerId: unknown,
+  ) => {
+    const pending = pendingTriggerNavigation;
+    if (
+      expectedTriggerId === undefined ||
+      (typeof expectedTriggerId === "string" &&
+        pending?.id === expectedTriggerId)
+    ) {
+      pendingTriggerNavigation = null;
+    }
+    return pending;
+  });
   ipcMain.handle("desktop:list-triggers", () =>
     listTriggers(triggerServer!),
   );
@@ -1326,6 +1512,19 @@ async function startDesktop(): Promise<void> {
         throw new Error("Invalid Trigger update");
       }
       return setTriggerEnabled(triggerServer!, triggerId, enabled);
+    },
+  );
+  ipcMain.handle(
+    "desktop:set-macos-notifications-enabled",
+    (_event, triggerId: unknown, enabled: unknown) => {
+      if (typeof triggerId !== "string" || typeof enabled !== "boolean") {
+        throw new Error("Invalid macOS notification update");
+      }
+      return setMacosNotificationsEnabled(
+        triggerServer!,
+        triggerId,
+        enabled,
+      );
     },
   );
   ipcMain.handle(
@@ -1421,6 +1620,8 @@ async function startDesktop(): Promise<void> {
 }
 
 async function stopDesktop(): Promise<void> {
+  unsubscribeTriggerNotifications?.();
+  unsubscribeTriggerNotifications = null;
   if (triggerServer) await triggerServer.stop();
   triggerServer = null;
 }

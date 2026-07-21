@@ -13,6 +13,12 @@ const api: DesktopApi = {
     await ipcRenderer.invoke("desktop:get-trigger-page", triggerId),
   setTriggerEnabled: async (triggerId, enabled) =>
     await ipcRenderer.invoke("desktop:set-trigger-enabled", triggerId, enabled),
+  setMacosNotificationsEnabled: async (triggerId, enabled) =>
+    await ipcRenderer.invoke(
+      "desktop:set-macos-notifications-enabled",
+      triggerId,
+      enabled,
+    ),
   setCodexShowInCodex: async (triggerId, showInCodex) =>
     await ipcRenderer.invoke(
       "desktop:set-codex-show-in-codex",
@@ -31,6 +37,18 @@ const api: DesktopApi = {
     await ipcRenderer.invoke("desktop:get-webhook-tunnel-settings"),
   setWebhookTunnelEnabled: async (enabled) =>
     await ipcRenderer.invoke("desktop:set-webhook-tunnel-enabled", enabled),
+  getPendingTriggerNavigation: async (expectedTriggerId) =>
+    await ipcRenderer.invoke(
+      "desktop:get-pending-trigger-navigation",
+      expectedTriggerId,
+    ),
+  onOpenTrigger: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, trigger: unknown) => {
+      listener(trigger as Parameters<typeof listener>[0]);
+    };
+    ipcRenderer.on("desktop:open-trigger", handler);
+    return () => ipcRenderer.removeListener("desktop:open-trigger", handler);
+  },
 };
 
 contextBridge.exposeInMainWorld("desktop", api);
