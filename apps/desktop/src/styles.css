@@ -557,6 +557,25 @@ button {
   padding: 22px;
 }
 
+.notification-options-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px;
+}
+
+.notification-options-card strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.notification-options-card p {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .recent-runs-card {
   overflow: hidden;
 }

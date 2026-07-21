@@ -212,6 +212,14 @@ function TriggerPage({
       void queryClient.invalidateQueries({ queryKey: ["triggers"] });
     },
   });
+  const macosNotificationMutation = useMutation({
+    mutationFn: (enabled: boolean) =>
+      window.desktop.setMacosNotificationsEnabled(trigger.id, enabled),
+    onSuccess: (page) => {
+      queryClient.setQueryData(queryKey, page);
+      void queryClient.invalidateQueries({ queryKey: ["triggers"] });
+    },
+  });
   const showInCodexMutation = useMutation({
     mutationFn: (showInCodex: boolean) =>
       window.desktop.setCodexShowInCodex(trigger.id, showInCodex),
@@ -285,6 +293,38 @@ function TriggerPage({
             <pre className="code-block"><code>{data.event.code}</code></pre>
           </details>
         </div>
+      </section>
+
+      <section className="detail-section" aria-labelledby="notifications-title">
+        <h2 id="notifications-title">Notifications</h2>
+        <div className="detail-card notification-options-card">
+          <div>
+            <strong>macOS Notification</strong>
+            <p>Show a notification when this Trigger emits an event.</p>
+          </div>
+          <button
+            className="toggle-switch"
+            type="button"
+            role="switch"
+            aria-label="macOS Notification"
+            aria-checked={data.trigger.macosNotificationsEnabled}
+            disabled={macosNotificationMutation.isPending}
+            onClick={() =>
+              macosNotificationMutation.mutate(
+                !data.trigger.macosNotificationsEnabled,
+              )
+            }
+          >
+            <span />
+          </button>
+        </div>
+        {macosNotificationMutation.error ? (
+          <p className="inline-action-error">
+            {macosNotificationMutation.error instanceof Error
+              ? macosNotificationMutation.error.message
+              : "Could not update macOS notifications"}
+          </p>
+        ) : null}
       </section>
 
       <section className="detail-section" aria-labelledby="codex-options-title">
@@ -654,7 +694,11 @@ function OnboardingPage({
 
 type Page = "home" | "create" | "trigger" | "settings";
 
-function MainApplication() {
+function MainApplication({
+  requestedTrigger,
+}: {
+  requestedTrigger: TriggerSummary | null;
+}) {
   const [page, setPage] = useState<Page>("home");
   const [selectedTrigger, setSelectedTrigger] = useState<TriggerSummary | null>(
     null,
@@ -663,6 +707,12 @@ function MainApplication() {
     Exclude<Page, "settings">
   >("home");
   const [funnelBannerVisible, setFunnelBannerVisible] = useState(false);
+
+  useEffect(() => {
+    if (!requestedTrigger) return;
+    setSelectedTrigger(requestedTrigger);
+    setPage("trigger");
+  }, [requestedTrigger]);
 
   useEffect(() => {
     let cancelled = false;
@@ -741,6 +791,21 @@ function MainApplication() {
 
 function App() {
   const [errorDismissed, setErrorDismissed] = useState(false);
+  const [requestedTrigger, setRequestedTrigger] =
+    useState<TriggerSummary | null>(null);
+
+  useEffect(() => {
+    const removeListener = window.desktop.onOpenTrigger((trigger) => {
+      setRequestedTrigger(trigger);
+      void window.desktop.getPendingTriggerNavigation(trigger.id);
+    });
+    void window.desktop
+      .getPendingTriggerNavigation()
+      .then((trigger) => {
+        if (trigger) setRequestedTrigger(trigger);
+      });
+    return removeListener;
+  }, []);
   const onboarding = useQuery({
     queryKey: ["onboarding"],
     queryFn: () => window.desktop.getOnboardingStatus(),
@@ -780,7 +845,7 @@ function App() {
     );
   }
 
-  return <MainApplication />;
+  return <MainApplication requestedTrigger={requestedTrigger} />;
 }
 
 const rootElement = document.querySelector("#root");
