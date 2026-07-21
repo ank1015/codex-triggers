@@ -172,6 +172,75 @@ test("Notification data is rendered and delivered through a configured service",
   assert.ok(harness.system.database.delivery.getJob(jobs[0]!.id));
 });
 
+test("running Delivery jobs keep their original settings when the Delivery changes", async () => {
+  const received: DeliveryServiceRequest[] = [];
+  let signalStarted!: () => void;
+  let releaseDelivery!: () => void;
+  const started = new Promise<void>((resolve) => {
+    signalStarted = resolve;
+  });
+  const released = new Promise<void>((resolve) => {
+    releaseDelivery = resolve;
+  });
+  const blockingService = captureService(received);
+  blockingService.deliver = async (request) => {
+    received.push(request);
+    signalStarted();
+    await released;
+    return { accepted: true, projectId: String(request.config.projectId) };
+  };
+
+  const harness = await createHarness({
+    deliveryServices: [blockingService],
+  });
+  const trigger = await createTestTrigger(harness.system);
+  const delivery = harness.system.delivery.create({
+    name: "Snapshot settings",
+    triggerId: trigger.details.trigger.id,
+    enabled: true,
+    services: [
+      {
+        type: "capture",
+        config: { projectId: "original-project" },
+        input: {
+          prompt: "{{message}}",
+          attachments: "{{data.attachments}}",
+          metadata: { number: "{{data.number}}" },
+        },
+      },
+    ],
+  });
+
+  harness.system.runManually(trigger.details.trigger.id, {} as JsonValue);
+  await started;
+  assert.deepEqual(received[0]?.config, { projectId: "original-project" });
+
+  harness.system.delivery.update(delivery.delivery.id, {
+    services: [
+      {
+        type: "capture",
+        config: { projectId: "updated-project" },
+        input: {
+          prompt: "Updated: {{message}}",
+          attachments: "{{data.attachments}}",
+          metadata: { number: "{{data.number}}" },
+        },
+      },
+    ],
+  });
+  assert.deepEqual(received[0]?.config, { projectId: "original-project" });
+  assert.equal(received[0]?.input.prompt, "Pull request opened");
+
+  releaseDelivery();
+  await waitFor(() => {
+    const jobs = harness.system.database.delivery.listJobs({
+      deliveryId: delivery.delivery.id,
+    });
+    assert.equal(jobs[0]?.status, "succeeded");
+  });
+  assert.deepEqual(received[0]?.config, { projectId: "original-project" });
+});
+
 test("configured service jobs fail independently", async () => {
   const received: DeliveryServiceRequest[] = [];
   const harness = await createHarness({
