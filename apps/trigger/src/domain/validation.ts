@@ -114,11 +114,18 @@ export function parseCreateTrigger(value: unknown): CreateTriggerInput {
   if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
     throw new ValidationError("enabled must be a boolean");
   }
+  if (
+    value.macosNotificationsEnabled !== undefined &&
+    typeof value.macosNotificationsEnabled !== "boolean"
+  ) {
+    throw new ValidationError("macosNotificationsEnabled must be a boolean");
+  }
 
   const result: CreateTriggerInput = {
     name: nonEmptyString(value.name, "name"),
     kind,
     enabled: value.enabled ?? true,
+    macosNotificationsEnabled: value.macosNotificationsEnabled ?? true,
     code: nonEmptyString(value.code, "code"),
     outputSchema: parseOutputSchema(value.outputSchema),
     timeoutMs: parseTimeout(value.timeoutMs, kind),
@@ -143,6 +150,12 @@ export function parseUpdateTrigger(
       throw new ValidationError("enabled must be a boolean");
     }
     result.enabled = value.enabled;
+  }
+  if (value.macosNotificationsEnabled !== undefined) {
+    if (typeof value.macosNotificationsEnabled !== "boolean") {
+      throw new ValidationError("macosNotificationsEnabled must be a boolean");
+    }
+    result.macosNotificationsEnabled = value.macosNotificationsEnabled;
   }
   if (value.code !== undefined) result.code = nonEmptyString(value.code, "code");
   if (value.outputSchema !== undefined) {

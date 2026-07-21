@@ -55,6 +55,48 @@ test("Service Trigger is supervised, stopped, and restored after host restart", 
   assert.equal(stopped?.trigger.enabled, false);
 });
 
+test("Service Trigger is not restarted by presentation-only settings", async () => {
+  const { system } = await createHarness();
+  const created = await system.createTrigger({
+    name: "Stable service",
+    kind: "service",
+    enabled: true,
+    code: `
+      export default {
+        async start(ctx) {
+          await ctx.untilStopped()
+        }
+      }
+    `,
+    outputSchema: true,
+    timeoutMs: 0,
+  });
+  const triggerId = created.details.trigger.id;
+  await waitFor(() => {
+    assert.equal(system.database.getServiceState(triggerId)?.status, "running");
+  });
+  const originalExecution = system.database
+    .listExecutions({ triggerId })
+    .find(({ status }) => status === "running");
+  assert.ok(originalExecution);
+
+  await system.updateTrigger(triggerId, {
+    name: "Renamed stable service",
+    macosNotificationsEnabled: false,
+  });
+
+  const runningExecutions = system.database
+    .listExecutions({ triggerId })
+    .filter(({ status }) => status === "running");
+  assert.equal(runningExecutions.length, 1);
+  assert.equal(runningExecutions[0]?.id, originalExecution.id);
+  assert.equal(system.database.getTrigger(triggerId)?.name, "Renamed stable service");
+  assert.equal(
+    system.database.getTrigger(triggerId)?.macosNotificationsEnabled,
+    false,
+  );
+});
+
 test("Service Trigger can host its own listening server without creating a process", async () => {
   const { system } = await createHarness();
   const created = await system.createTrigger({

@@ -25,6 +25,7 @@ type TriggerRow = {
   name: string;
   kind: TriggerKind;
   enabled: number;
+  macos_notification_enabled: number;
   active_revision_id: string;
   created_at: string;
   updated_at: string;
@@ -103,6 +104,7 @@ const triggerFromRow = (row: TriggerRow): Trigger => ({
   name: row.name,
   kind: row.kind,
   enabled: Boolean(row.enabled),
+  macosNotificationsEnabled: Boolean(row.macos_notification_enabled),
   activeRevisionId: row.active_revision_id,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -199,6 +201,7 @@ export class TriggerDatabase {
         name TEXT NOT NULL,
         kind TEXT NOT NULL CHECK (kind IN ('webhook', 'schedule', 'service')),
         enabled INTEGER NOT NULL,
+        macos_notification_enabled INTEGER NOT NULL DEFAULT 1,
         active_revision_id TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -292,6 +295,14 @@ export class TriggerDatabase {
       CREATE INDEX IF NOT EXISTS schedules_next_run
         ON schedules(next_run_at);
     `);
+    const triggerColumns = this.database
+      .prepare("PRAGMA table_info(triggers)")
+      .all() as unknown as Array<{ name: string }>;
+    if (!triggerColumns.some(({ name }) => name === "macos_notification_enabled")) {
+      this.database.exec(
+        "ALTER TABLE triggers ADD COLUMN macos_notification_enabled INTEGER NOT NULL DEFAULT 1",
+      );
+    }
   }
 
   transaction<T>(operation: () => T): T {
@@ -317,14 +328,16 @@ export class TriggerDatabase {
       this.database
         .prepare(`
           INSERT INTO triggers (
-            id, name, kind, enabled, active_revision_id, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            id, name, kind, enabled, macos_notification_enabled,
+            active_revision_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `)
         .run(
           trigger.id,
           trigger.name,
           trigger.kind,
           trigger.enabled ? 1 : 0,
+          trigger.macosNotificationsEnabled ? 1 : 0,
           trigger.activeRevisionId,
           trigger.createdAt,
           trigger.updatedAt,
@@ -470,16 +483,28 @@ export class TriggerDatabase {
 
   updateTriggerMetadata(
     id: string,
-    update: { name?: string; enabled?: boolean },
+    update: {
+      name?: string;
+      enabled?: boolean;
+      macosNotificationsEnabled?: boolean;
+    },
   ): Trigger | null {
     const trigger = this.getTrigger(id);
     if (!trigger) return null;
     const now = new Date().toISOString();
     this.database
-      .prepare("UPDATE triggers SET name = ?, enabled = ?, updated_at = ? WHERE id = ?")
+      .prepare(`
+        UPDATE triggers SET
+          name = ?, enabled = ?, macos_notification_enabled = ?, updated_at = ?
+        WHERE id = ?
+      `)
       .run(
         update.name ?? trigger.name,
         (update.enabled ?? trigger.enabled) ? 1 : 0,
+        (update.macosNotificationsEnabled ??
+        trigger.macosNotificationsEnabled)
+          ? 1
+          : 0,
         now,
         id,
       );

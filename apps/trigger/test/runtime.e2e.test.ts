@@ -2,7 +2,36 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { JsonValue } from "../src/domain/types.js";
-import { createHarness, waitFor } from "./helpers/harness.js";
+import {
+  createHarness,
+  restartHarness,
+  waitFor,
+} from "./helpers/harness.js";
+
+test("macOS notifications default on and persist when disabled", async () => {
+  const first = await createHarness();
+  const created = await first.system.createTrigger({
+    name: "Notification preference",
+    kind: "webhook",
+    enabled: true,
+    code: `export default () => ({ message: "hello", data: {} })`,
+    outputSchema: { type: "object", additionalProperties: false },
+    timeoutMs: 2_000,
+  });
+  const triggerId = created.details.trigger.id;
+  assert.equal(created.details.trigger.macosNotificationsEnabled, true);
+
+  const updated = await first.system.updateTrigger(triggerId, {
+    macosNotificationsEnabled: false,
+  });
+  assert.equal(updated?.trigger.macosNotificationsEnabled, false);
+
+  const restarted = await restartHarness(first);
+  assert.equal(
+    restarted.system.database.getTrigger(triggerId)?.macosNotificationsEnabled,
+    false,
+  );
+});
 
 test("invalid output fails the execution and creates no notification", async () => {
   const { system } = await createHarness();

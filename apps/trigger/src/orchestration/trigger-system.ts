@@ -211,6 +211,7 @@ export class TriggerSystem {
       name: input.name,
       kind: input.kind,
       enabled: input.enabled,
+      macosNotificationsEnabled: input.macosNotificationsEnabled ?? true,
       activeRevisionId: revisionId,
       createdAt: now,
       updatedAt: now,
@@ -293,10 +294,17 @@ export class TriggerSystem {
       }
     }
 
-    if (update.name !== undefined || update.enabled !== undefined) {
+    if (
+      update.name !== undefined ||
+      update.enabled !== undefined ||
+      update.macosNotificationsEnabled !== undefined
+    ) {
       this.database.updateTriggerMetadata(triggerId, {
         ...(update.name !== undefined ? { name: update.name } : {}),
         ...(update.enabled !== undefined ? { enabled: update.enabled } : {}),
+        ...(update.macosNotificationsEnabled !== undefined
+          ? { macosNotificationsEnabled: update.macosNotificationsEnabled }
+          : {}),
       });
     }
 
@@ -307,7 +315,11 @@ export class TriggerSystem {
       });
     }
 
-    if (current.trigger.kind === "service") {
+    const serviceRuntimeChanged =
+      revisionChanged ||
+      (update.enabled !== undefined &&
+        update.enabled !== current.trigger.enabled);
+    if (current.trigger.kind === "service" && serviceRuntimeChanged) {
       await this.services.refresh(triggerId);
     }
     return this.database.getDetails(triggerId);

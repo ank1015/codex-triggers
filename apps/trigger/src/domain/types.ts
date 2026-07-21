@@ -21,6 +21,7 @@ export type Trigger = {
   name: string;
   kind: TriggerKind;
   enabled: boolean;
+  macosNotificationsEnabled: boolean;
   activeRevisionId: string;
   createdAt: string;
   updatedAt: string;
@@ -136,6 +137,7 @@ export type CreateTriggerInput = {
   name: string;
   kind: TriggerKind;
   enabled: boolean;
+  macosNotificationsEnabled?: boolean;
   code: string;
   outputSchema: JsonSchema;
   timeoutMs: number;
@@ -145,6 +147,7 @@ export type CreateTriggerInput = {
 export type UpdateTriggerInput = {
   name?: string;
   enabled?: boolean;
+  macosNotificationsEnabled?: boolean;
   code?: string;
   outputSchema?: JsonSchema;
   timeoutMs?: number;
