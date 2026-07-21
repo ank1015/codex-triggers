@@ -70,6 +70,7 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
       - if: env.NODE_AUTH_TOKEN != ''
-        run: pnpm --dir packages/codex-triggers publish --access public --no-git-checks
+        working-directory: packages/codex-triggers
+        run: npm publish --access public
       - if: env.NODE_AUTH_TOKEN == ''
         run: echo "NPM_TOKEN is not configured; skipping npm publish."
