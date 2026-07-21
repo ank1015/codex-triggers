@@ -10,7 +10,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "python3 scripts/generate-app-icon.py && pnpm clean && tsc -p tsconfig.json && node scripts/build-renderer.mjs && node scripts/copy-assets.mjs",
+    "build": "pnpm clean && tsc -p tsconfig.json && node scripts/build-renderer.mjs && node scripts/copy-assets.mjs",
+    "generate:icon": "python3 scripts/generate-app-icon.py",
     "clean": "node scripts/clean.mjs",
     "build:trigger": "pnpm --filter @codexmaxxing/trigger build",
     "dev": "pnpm build:trigger && pnpm build && node scripts/run-dev.mjs",
