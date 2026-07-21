@@ -7,3 +7,8 @@ data/
 .DS_Store
 *.log
 /apps/desktop/.dev/
+/apps/desktop/release/
+/packages/codex-triggers/.test-install*/
+/launch-video/
+/.agents/
+/skills-lock.json
