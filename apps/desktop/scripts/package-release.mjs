@@ -76,6 +76,11 @@ async function buildRelease() {
     ],
     { cwd: workspaceRoot },
   );
+  await execFileAsync(
+    "npm",
+    ["rebuild", "node-mac-permissions", "--build-from-source"],
+    { cwd: deployedApp },
+  );
   // Runtime code uses package APIs directly; executable shims are unnecessary
   // and are the only symlinks produced by the hoisted deployment.
   await rm(join(deployedApp, "node_modules", ".bin"), {

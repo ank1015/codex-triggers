@@ -49,10 +49,14 @@ const execFileAsync = promisify(execFile);
 const SKILL_NAME = "manage-codex-triggers";
 const ONBOARDING_VERSION = 1;
 
-const macPermissions =
-  process.platform === "darwin"
-    ? (require("node-mac-permissions") as typeof import("node-mac-permissions"))
-    : null;
+let macPermissions: typeof import("node-mac-permissions") | null = null;
+if (process.platform === "darwin") {
+  try {
+    macPermissions = require("node-mac-permissions") as typeof import("node-mac-permissions");
+  } catch (error) {
+    console.error("macOS notification permission status is unavailable", error);
+  }
+}
 
 if (smokeTest) {
   app.setPath("userData", join(tmpdir(), `codex-triggers-smoke-${process.pid}`));
