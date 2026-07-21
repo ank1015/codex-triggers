@@ -82,6 +82,17 @@ async function buildRelease() {
     recursive: true,
     force: true,
   });
+  await rm(
+    join(
+      deployedApp,
+      "node_modules",
+      ".pnpm",
+      "node_modules",
+      "@codexmaxxing",
+      "desktop",
+    ),
+    { force: true },
+  );
 
   const electronExecutable = require("electron");
   const electronApp = resolve(dirname(electronExecutable), "../..");
@@ -105,6 +116,11 @@ async function buildRelease() {
   await rm(join(resourcesPath, "default_app.asar"), { force: true });
   await rm(join(resourcesPath, "app"), { recursive: true, force: true });
   await cp(deployedApp, join(resourcesPath, "app"), {
+    recursive: true,
+    force: true,
+    dereference: true,
+  });
+  await rm(join(resourcesPath, "app", "node_modules", ".pnpm"), {
     recursive: true,
     force: true,
   });
